@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/python3
 # -*- coding: utf-8 -*
 
 """
@@ -214,9 +214,12 @@ class FreecellGame(object):
 
 def save_game(filename, game):
     with open(filename, 'w') as f:
-        f.write(str(game))
-        f.write("\n")
+        str_game = str(game)
+        for l in str_game.splitlines():
+            f.write(TermColor.remove_from_str(l)+'\n')
+        f.write('\n')
     print("Game saved in", filename)
+    print("WARNING: can't reset previous move at reload")
 
 def read_card(scard):
     suit = None
@@ -237,6 +240,7 @@ def read_card(scard):
     return Card(suit, value)
     
 def load_game(filename):
+    print("Load game file:", filename)
     freecell = list()
     bases = dict((k, []) for k in SUITS)
     columns = [list() for _ in range(COLUMN)]
@@ -261,6 +265,7 @@ def load_game(filename):
         # Second line must be empty
         line = f.readline()
         assert len(line.strip()) == 0
+        print("freecell & bases, ok")
 
         # Start of column
         line = f.readline()
@@ -287,16 +292,19 @@ def load_game(filename):
     for col in game.column:
         count += len(col)
     assert count == 52
+    print("52 cards, ok")
 
     # Check all cards are somewhere
     standard_deck = [Card(j, i) for i in range(1, len(CARD_VALUE)+1) for j in SUITS]
     for c in standard_deck:
+        #print(c)
         found = c in game.base.get(c.suit) or c in game.freecell
         cid = 0
         while not found and cid < COLUMN:
             found = c in game.column[cid]
             cid += 1
         assert found
+    print("Loaded Game is OK")
     
     return game
 
@@ -352,7 +360,7 @@ if __name__ == "__main__":
             print("B) Automatic to base")
         if len(moves) > 0:
             print("Z) cancel last move")
-        print("S) save (warning: can't reset previous move at reload)")
+        print("S) save")
         print("Q) quit")
         choice_id = input("Move id? ")
         if choice_id in ["Q", "q"]:
