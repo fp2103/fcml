@@ -48,6 +48,25 @@ class Card(object):
     def __hash__(self):
         return self.uid
 
+    @classmethod
+    def read_card(cls, scard):
+        suit = None
+        for s in SUITS:
+            if scard.endswith(s):
+                suit = s
+                break
+        if suit is None:
+            raise ValueError("No suit found in: %s" % scard)
+        
+        sval = scard.replace(suit, '')
+        reverse_card_value = {"a": 1, "j": 11, "q": 12, "k": 13}
+        value = reverse_card_value.get(sval, sval)
+        value = int(value)
+        if value < 1 or value > 13:
+            raise ValueError("Value in %s is not correct" % scard)
+        
+        return cls(suit, value)
+
 class Choice(object):
     def __init__(self, cards, col_orig, col_dest):
         self.cards = cards
@@ -63,26 +82,32 @@ class Choice(object):
 
 class FreecellState(object):
     """
-    A current state of a game of Freecell
+        A current state of a game of Freecell
     """
-    def __init__(self, freecells, bases, columns):
+    def __init__(self, freecells, bases, columns, computed_column_series=None):
         self.freecells = freecells
         self.bases = bases
         self.columns = columns
-
+    
         # Compute state data
         self.is_won = min([len(b) for _, b in self.bases.items()]) == len(CARD_VALUE)
         freecol = sum([len(col) == 0 for col in self.columns])
         self.max_mvt = (1 + FREECELL - len(self.freecells)) * (1 + freecol)
         self.max_mvt_freecol_dst =  (1 + FREECELL - len(self.freecells)) * freecol
-    
-    def clone(self):
+
+        # Compute current series
+        self.column_series = computed_column_series
+        if self.column_series is None:
+            self.column_series = [self._get_column_serie(i) for i in range(0, COLUMN)]
+  
+    def _clone(self):
         f = list(self.freecells)
         b = dict((k, list(self.bases.get(k))) for k in SUITS)
         c = [list(self.columns[i]) for i in range(0, COLUMN)]
-        return (f, b, c)
+        sc = [list(self.column_series[i]) for i in range(0, COLUMN)]
+        return (f, b, c, sc)
 
-    def available_dest(self, head_card, cur_col, serie_size):
+    def _available_dest(self, head_card, cur_col, serie_size):
         dest = []
 
         if serie_size <= self.max_mvt:
@@ -109,7 +134,7 @@ class FreecellState(object):
 
         return dest
     
-    def column_serie(self, col_id):
+    def _get_column_serie(self, col_id):
         col = self.columns[col_id]
         serie = []
         last_card = None
@@ -122,6 +147,56 @@ class FreecellState(object):
             last_card = card
         serie.reverse()
         return serie
+    
+    def update_column_serie(self, col_id):
+        if col_id != COL_FC and col_id != COL_BASE:
+            self.column_series[col_id] = self._get_column_serie(col_id)
+
+    def list_choices(self):
+        """ Compute all choices for this state, 
+            column_series MUST be up to date
+        """
+        choices = []
+
+        # Freecell
+        for card in self.freecells:
+            for dst in self._available_dest(card, None, 1):
+                choices.append(Choice([card], COL_FC, dst))
+
+        # Columns
+        for i in range(0, COLUMN):
+            col_serie = self.column_series[i]
+            for j in range(0, len(col_serie)):
+                sub_serie = col_serie[j:]
+                for dst in self._available_dest(sub_serie[0], i, len(sub_serie)):
+                    choices.append(Choice(sub_serie, i, dst))
+
+        return choices
+    
+    def apply(self, choice):
+        f, b, c, sc = self._clone()
+
+        # From origin
+        if choice.col_orig == COL_FC:
+            f.remove(choice.cards[0])
+        else:
+            for _ in choice.cards:
+                c[choice.col_orig].pop()
+        
+        # To dest
+        if choice.col_dest == COL_BASE:
+            card = choice.cards[0]
+            b.get(card.suit).append(card)
+        elif choice.col_dest == COL_FC:
+            f.append(choice.cards[0])
+        else:
+            c[choice.col_dest].extend(choice.cards)
+
+        # Create new state
+        ret = FreecellState(f, b, c, sc)
+        ret.update_column_serie(choice.col_orig)
+        ret.update_column_serie(choice.col_dest)
+        return ret
                 
     def __str__(self):
         return self.display()
@@ -165,157 +240,92 @@ class FreecellState(object):
         
         return cls([], dict((k, []) for k in SUITS), columns)
 
-
 class FreecellGame(object):
-    def __init__(self, state):
+    def __init__(self, name, state):
+        self.name = name
         self.state = state
-        self._column_series = [self.state.column_serie(i) for i in range(0, COLUMN)]
         self.past_states = []
     
     def __str__(self):
         return self.state.display()
-    
-    def _update_column_series(self, cols):
-        for c in cols:
-            if c != COL_FC and c != COL_BASE:
-                self._column_series[c] = self.state.column_serie(c)
-   
-    def compute_choices(self):
-        # Compute all choices for the current state
-        choices = []
 
-        # Freecell
-        for card in self.state.freecells:
-            for dst in self.state.available_dest(card, None, 1):
-                choices.append(Choice([card], COL_FC, dst))
-
-        # Columns
-        for i in range(0, COLUMN):
-            col_serie = self._column_series[i]
-            for j in range(0, len(col_serie)):
-                sub_serie = col_serie[j:]
-                for dst in self.state.available_dest(sub_serie[0], i, len(sub_serie)):
-                    choices.append(Choice(sub_serie, i, dst))
-
-        return choices
-    
     def apply(self, choice):
-        f, b, c = self.state.clone()
-
-        # From origin
-        if choice.col_orig == COL_FC:
-            f.remove(choice.cards[0])
-        else:
-            for _ in choice.cards:
-                c[choice.col_orig].pop()
-        
-        # To dest
-        if choice.col_dest == COL_BASE:
-            card = choice.cards[0]
-            b.get(card.suit).append(card)
-        elif choice.col_dest == COL_FC:
-            f.append(choice.cards[0])
-        else:
-            c[choice.col_dest].extend(choice.cards)
-
-        # update state
         self.past_states.append(self.state)
-        self.state = FreecellState(f, b, c)
-        self._update_column_series([choice.col_orig, choice.col_dest])
+        self.state = self.state.apply(choice)
     
     def reverse_apply(self, choice):
         if len(self.past_states) > 0:
             self.state = self.past_states.pop()
-            self._update_column_series([choice.col_orig, choice.col_dest])
+            self.state.update_column_serie(choice.col_dest)
+            self.state.update_column_serie(choice.col_orig)
 
-# ---- Saving game functions ----
+    def save_game(self):
+        filename = self.name
+        with open(filename, 'w') as f:
+            f.write(self.state.display(False))
+            f.write('\n')
+        print("Game saved in", filename)
+        print("WARNING: can't reset previous move at reload")
 
-def save_game(filename, game):
-    with open(filename, 'w') as f:
-        f.write(game.state.display(False))
-        f.write('\n')
-    print("Game saved in", filename)
-    print("WARNING: can't reset previous move at reload")
-
-def read_card(scard):
-    suit = None
-    for s in SUITS:
-        if scard.endswith(s):
-            suit = s
-            break
-    if suit is None:
-        raise ValueError("No suit found in: %s" % scard)
-    
-    sval = scard.replace(suit, '')
-    reverse_card_value = {"a": 1, "j": 11, "q": 12, "k": 13}
-    value = reverse_card_value.get(sval, sval)
-    value = int(value)
-    if value < 0 or value > 13:
-        raise ValueError("Value in %s is not correct" % scard)
-    
-    return Card(suit, value)
-    
-def load_game(filename):
-    print("Load game file:", filename)
-    freecell = list()
-    bases = dict((k, []) for k in SUITS)
-    columns = [list() for _ in range(COLUMN)]
-    with open(filename, 'r') as f:
-        # First line must be Freecell and bases
-        line = f.readline()
-        # Freecell
-        fcstr = line.split()[:-4]
-        for sc in fcstr:
-            freecell.append(read_card(sc))
-        
-        # Bases
-        bstr = line.split()[-4:]
-        for bs in bstr:
-            if not bs.startswith('0'):
-                lbc = read_card(bs)
-                for n in range(1, lbc.num+1):
-                    bases[lbc.suit].append(Card(lbc.suit, n))
-
-        # Second line must be empty
-        line = f.readline()
-        assert len(line.strip()) == 0
-        print("freecell & bases, ok")
-
-        # Start of column
-        line = f.readline()
-        while line:
-            line = line.replace('\n', '')
-            cid = 0
-            for sc in line.split("\t"):
-                if len(sc) > 0:
-                    columns[cid].append(read_card(sc))
-                cid += 1
+    @classmethod
+    def from_file(cls, filename):
+        print("Load game file:", filename)
+        freecells = list()
+        bases = dict((k, []) for k in SUITS)
+        columns = [list() for _ in range(COLUMN)]
+        with open(filename, 'r') as f:
+            # First line must be Freecell and bases
             line = f.readline()
+            # Freecell
+            fcstr = line.split()[:-4]
+            for sc in fcstr:
+                freecells.append(Card.read_card(sc))
+            
+            # Bases
+            bstr = line.split()[-4:]
+            for bs in bstr:
+                if not bs.startswith('0'):
+                    lbc = Card.read_card(bs)
+                    for n in range(1, lbc.num+1):
+                        bases[lbc.suit].append(Card(lbc.suit, n))
 
-    # Initialize game
-    game = FreecellGame(FreecellState(freecell, bases, columns))
+            # Second line must be empty
+            line = f.readline()
+            assert len(line.strip()) == 0
+            print("freecell & bases, ok")
 
-    # Check we have 52 cards total
-    count = len(game.state.freecells)
-    for _, b in game.state.bases.items():
-        count += len(b)
-    for col in game.state.columns:
-        count += len(col)
-    assert count == 52
-    print("52 cards, ok")
+            # Start of column
+            line = f.readline()
+            while line:
+                line = line.replace('\n', '')
+                cid = 0
+                for sc in line.split("\t"):
+                    if len(sc) > 0:
+                        columns[cid].append(Card.read_card(sc))
+                    cid += 1
+                line = f.readline()
 
-    # Check all cards are somewhere
-    standard_deck = [Card(j, i) for i in range(1, len(CARD_VALUE)+1) for j in SUITS]
-    for c in standard_deck:
-        found = c in game.state.bases.get(c.suit) or c in game.state.freecells
-        cid = 0
-        while not found and cid < COLUMN:
-            found = c in game.state.columns[cid]
-            cid += 1
-        assert found, "Card: %s is missing" % str(c)
-    print("Loaded Game is OK")
-    
-    return game
+        # Check we have 52 cards total
+        count = len(freecells)
+        for _, b in bases.items():
+            count += len(b)
+        for col in columns:
+            count += len(col)
+        assert count == 52
+        print("52 cards, ok")
+
+        # Check all cards are somewhere
+        standard_deck = [Card(j, i) for i in range(1, len(CARD_VALUE)+1) for j in SUITS]
+        for c in standard_deck:
+            found = c in bases.get(c.suit) or c in freecells
+            cid = 0
+            while not found and cid < COLUMN:
+                found = c in columns[cid]
+                cid += 1
+            assert found, "Card: %s is missing" % str(c)
+        print("Loaded Game is OK")
+        
+        return FreecellGame(filename, FreecellState(freecells, bases, columns))
 
 # -------- Main freecell game --------
 
@@ -334,7 +344,7 @@ if __name__ == "__main__":
     
         if game_file:
             try:
-                game = load_game(gid)
+                game = FreecellGame.from_file(gid)
             except:
                 print("Please give a valid file game or game id")
                 exit(1) 
@@ -344,7 +354,7 @@ if __name__ == "__main__":
         deck = [Card(j, i) for i in range(1, len(CARD_VALUE)+1) for j in SUITS]
         randgen = random.Random(gid)
         randgen.shuffle(deck)
-        game = FreecellGame(FreecellState.init_from_deck(deck))
+        game = FreecellGame("game_%d.save" % gid, FreecellState.init_from_deck(deck))
 
     run = True
     moves = []
@@ -357,7 +367,7 @@ if __name__ == "__main__":
         print()
         print(game)
         print()
-        choices = game.compute_choices()
+        choices = game.state.list_choices()
         base_available = False
         i = 0
         for choice in choices:
@@ -375,14 +385,14 @@ if __name__ == "__main__":
         if choice_id in ["Q", "q"]:
             run = False
         elif choice_id in ["S", "s"]:
-            save_game("game_%d.save" % gid, game)
+            game.save_game()
         elif choice_id in ["Z", "z"] and len(moves) > 0:
             game.reverse_apply(moves.pop())
         elif choice_id in ["B", "b"] and base_available:
             auto = True
             while auto:
                 auto = False
-                choices = game.compute_choices()
+                choices = game.state.list_choices()
                 for c in choices:
                     if c.col_dest == COL_BASE:
                         game.apply(c)
