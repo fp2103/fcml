@@ -99,6 +99,9 @@ class FreecellState(object):
         self.column_series = computed_column_series
         if self.column_series is None:
             self.column_series = [self._get_column_serie(i) for i in range(0, COLUMN)]
+        
+        # Choices list must be initialized by calling compute_choices
+        self.choices_list = None
   
     def _clone(self):
         f = list(self.freecells)
@@ -152,26 +155,27 @@ class FreecellState(object):
         if col_id != COL_FC and col_id != COL_BASE:
             self.column_series[col_id] = self._get_column_serie(col_id)
 
-    def list_choices(self):
-        """ Compute all choices for this state, 
+    def compute_choices(self):
+        """ Compute only ONCE all choices for this state,
             column_series MUST be up to date
         """
-        choices = []
+        if self.choices_list is None:
+            self.choices_list = []
 
-        # Freecell
-        for card in self.freecells:
-            for dst in self._available_dest(card, None, 1):
-                choices.append(Choice([card], COL_FC, dst))
+            # Freecell
+            for card in self.freecells:
+                for dst in self._available_dest(card, None, 1):
+                    self.choices_list.append(Choice([card], COL_FC, dst))
 
-        # Columns
-        for i in range(0, COLUMN):
-            col_serie = self.column_series[i]
-            for j in range(0, len(col_serie)):
-                sub_serie = col_serie[j:]
-                for dst in self._available_dest(sub_serie[0], i, len(sub_serie)):
-                    choices.append(Choice(sub_serie, i, dst))
+            # Columns
+            for i in range(0, COLUMN):
+                col_serie = self.column_series[i]
+                for j in range(0, len(col_serie)):
+                    sub_serie = col_serie[j:]
+                    for dst in self._available_dest(sub_serie[0], i, len(sub_serie)):
+                        self.choices_list.append(Choice(sub_serie, i, dst))
 
-        return choices
+        return self.choices_list
     
     def apply(self, choice):
         f, b, c, sc = self._clone()
@@ -192,7 +196,7 @@ class FreecellState(object):
         else:
             c[choice.col_dest].extend(choice.cards)
 
-        # Create new state
+        # Create new state & update it
         ret = FreecellState(f, b, c, sc)
         ret.update_column_serie(choice.col_orig)
         ret.update_column_serie(choice.col_dest)
@@ -367,7 +371,7 @@ if __name__ == "__main__":
         print()
         print(game)
         print()
-        choices = game.state.list_choices()
+        choices = game.state.compute_choices()
         base_available = False
         i = 0
         for choice in choices:
@@ -392,7 +396,7 @@ if __name__ == "__main__":
             auto = True
             while auto:
                 auto = False
-                choices = game.state.list_choices()
+                choices = game.state.compute_choices()
                 for c in choices:
                     if c.col_dest == COL_BASE:
                         game.apply(c)
