@@ -115,6 +115,7 @@ class FreecellState(object):
 
         if serie_size <= self.max_mvt:
             # To other columns
+            entire_column = cur_col != COL_FC and len(self.columns[cur_col]) == serie_size
             for i in range(0, COLUMN):
                 if i != cur_col:
                     col = self.columns[i]
@@ -122,7 +123,7 @@ class FreecellState(object):
                         last_c = col[-1]
                         if last_c.color != head_card.color and last_c.num - head_card.num == 1:
                             dest.append(i)
-                    elif serie_size <= self.max_mvt_freecol_dst:
+                    elif serie_size <= self.max_mvt_freecol_dst and not entire_column:
                         dest.append(i)
 
         if serie_size == 1:
@@ -132,7 +133,7 @@ class FreecellState(object):
                 dest.append(COL_BASE)
 
             # To freecell
-            if cur_col is not None and len(self.freecells) < FREECELL:
+            if cur_col != COL_FC and len(self.freecells) < FREECELL:
                 dest.append(COL_FC)
 
         return dest
@@ -164,7 +165,7 @@ class FreecellState(object):
 
             # Freecell
             for card in self.freecells:
-                for dst in self._available_dest(card, None, 1):
+                for dst in self._available_dest(card, COL_FC, 1):
                     self.choices_list.append(Choice([card], COL_FC, dst))
 
             # Columns

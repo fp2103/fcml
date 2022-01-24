@@ -5,10 +5,6 @@
 Small library to define Neural Networks and Evolution algorithm
 """
 
-import threading
-import random
-import math
-
 ZERO_PRECISION = 6
 
 class NeuralNetwork(object):
