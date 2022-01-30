@@ -90,7 +90,9 @@ class FreecellState(object):
         self.columns = columns
     
         # Compute state data
-        self.is_won = min([len(b) for _, b in self.bases.items()]) == len(CARD_VALUE)
+        self.bases_len = [len(self.bases.get(k)) for k in SUITS]
+        self.in_base = sum(self.bases_len)
+        self.is_won = self.in_base == 52
         freecol = sum([len(col) == 0 for col in self.columns])
         self.max_mvt = (1 + FREECELL - len(self.freecells)) * (1 + freecol)
         self.max_mvt_freecol_dst =  (1 + FREECELL - len(self.freecells)) * freecol
