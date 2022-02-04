@@ -12,264 +12,135 @@ import freecell as fc
 
 MAX_ITER = 2000
 MAX_MOVES = 500
-PARAMS = 6
-PRIMARY_PARAMS = 4
-WINNING_STATE = (1.0, 0.0, 1.0, 1.0, 0.0, 0.0)
-ZERO_STATE = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-MIN_WEIGHT = -10000
-MAX_WEIGHT = 10000
-SORTED_DECK = [fc.Card(j, i) for j in fc.SUITS for i in range(1, len(fc.CARD_VALUE)+1)]
+MAX_MOVES_WO_PROGRESS = 100
+
+PARAMS = 15
+
 DBFILE = "solvers.db"
-KIDS_SIGMA = 3
+#KIDS_SIGMA = 2
 
-class StateData(object):
-    """ Struct-like object to store state + weight data """
-    def __init__(self, state, weight, choice, choice_hash, weight_vector):
-        self.state = state
-        self.weight = weight
-        self.choice = choice
-        self.choice_hash = choice_hash
-        self.weight_vector = weight_vector
-
-class SolverStats(object):
-    """ Struct-like object to store Solver stats """
-    def __init__(self, nplayed, in_base_mean, nsuccess, move_mean, iter_mean):
-        self.nplayed = nplayed
-        self.in_base_mean = in_base_mean
-        self.nsuccess = nsuccess
-        self.move_mean = move_mean
-        self.iter_mean = iter_mean
-    
-    @classmethod
-    def zeros(cls):
-        return cls(0, 0.0, 0, 0.0, 0.0)
-    
-    def __str__(self):
-        success_rate = self.nsuccess / self.nplayed if self.nplayed > 0 else 0.0
-        return "played: %d, in_base_mean: %f, success: %d (%f), move_mean: %f, iter_mean: %f" \
-                % (self.nplayed, self.in_base_mean, self.nsuccess, success_rate, self.move_mean, self.iter_mean)
-    
-    def __eq__(self, other):
-        return self.nplayed == other.nplayed and \
-               self.in_base_mean == other.in_base_mean and \
-               self.nsuccess == other.nsuccess and \
-               self.move_mean == other.move_mean and \
-               self.iter_mean == other.iter_mean
-
-    def __lt__(self, other):
-        success_rate = self.nsuccess / self.nplayed if self.nplayed > 0 else 0.0
-        other_success_rate = other.nsuccess / other.nplayed if other.nplayed > 0 else 0.0
-        return self.in_base_mean < other.in_base_mean or \
-               (self.in_base_mean == other.in_base_mean and success_rate < other_success_rate) or \
-               (self.in_base_mean == other.in_base_mean and success_rate == other_success_rate and self.move_mean > other.move_mean) or \
-               (self.in_base_mean == other.in_base_mean and success_rate == other_success_rate and self.move_mean == other.move_mean and \
-                   self.iter_mean > other.iter_mean) or \
-               (self.in_base_mean == other.in_base_mean and success_rate == other_success_rate and self.move_mean == other.move_mean and \
-                   self.iter_mean == other.iter_mean and self.nplayed < other.nplayed)
+def vector_multiply(v1, v2):
+    ret = 0
+    for i in range(min(len(v1), len(v2))):
+        ret += v1[i]*v2[i]
+    return ret
 
 class Solver(object):
-    def __init__(self, name, coeffs):
-        self.name = name
-        self.strategy_coeffs = coeffs
-        self.stats = SolverStats.zeros()
-
-        # Recurse var
-        self._iter = 0
-        self._max_in_bases = 0
-        self._path = []
-        self._path_hash = set()
+    def __init__(self, coeffs):
+        self.coeffs = coeffs
     
-    @classmethod
-    def from_string(cls, name, s):
-        coeffs_str = s.replace('[', '').replace(']', '')
-        coeffs = []
-        for c in coeffs_str.split(','):
-            coeffs.append(float(c))
-        assert len(coeffs) == (PRIMARY_PARAMS+1)*PARAMS, "len(coeffs) is wrong"
-        return cls(name, coeffs)
-    
-    def __str__(self):
-        return self.name + ", " + str(self.stats)
+    def _weight_state(self, len_bases, game, all_choices):
+        in_bases = sum(len_bases) / 52.0
+        gap_bases = (min(len_bases) - max(len_bases)) / 13.0
+        in_serie = sum([len(game._column_series[i]) for i in range(fc.COLUMN)]) / (52.0 - sum(len_bases))
+        mvt_max = min(game._get_mvt_max()[0] / 13.0, 1.0)
+        choices_coeff = min(len(all_choices) / 30.0, 1.0)
 
-    # ------ Static data compute helpers ------
-    @staticmethod
-    def hash_choice(choice, state):
-        ret = ",".join([str(c.uid) for c in choice.cards]) + ":"
+        v = (in_bases, gap_bases, in_serie, mvt_max, choices_coeff)
+        return vector_multiply(v, self.coeffs[0:5]), v
+        
+    def _hash_choice(self, choice, fcboard):
+        ret = ",".join([c.name for c in choice.cards]) + ":"
         col_orig_str = choice.col_orig
         if choice.col_orig != fc.COL_FC:
-            col_orig_str = ",".join([str(c.uid) for c in state.columns[choice.col_orig][:-len(choice.cards)]])
+            col_orig_str = ",".join([c.name for c in fcboard.columns[choice.col_orig][:-len(choice.cards)]])
         col_dest_str = choice.col_dest
         if choice.col_dest != fc.COL_BASE and choice.col_dest != fc.COL_FC:
-            col_dest_str = ",".join([str(c.uid) for c in state.columns[choice.col_dest]])
+            col_dest_str = ",".join([c.name for c in fcboard.columns[choice.col_dest]])
         ret += "-".join(sorted([col_orig_str, col_dest_str]))
         return ret
-    
-    @staticmethod
-    def compute_state_weight(state):
-        """ # primary measures:
-            .in base/52
-            .gap between bases
-            .in serie/remaining
-            .max_mvt/13 (max 1)
-            # secondary measures:
-            .to base/choices
-            .from fc/choices
-        """
-        if state.is_won:
-            return WINNING_STATE
 
-        in_base_norm = state.in_base / 52.0
+    def _weight_choice(self, choice, game, in_serie, mvt_max):
+        to_base = choice.col_dest == fc.COL_BASE
+        to_fc = choice.col_dest == fc.COL_BASE
+        to_serie = choice.col_dest != fc.COL_BASE and choice.col_dest != fc.COL_FC and len(game._column_series[choice.col_dest]) > 0
+        to_emptycol = choice.col_dest != fc.COL_BASE and choice.col_dest != fc.COL_FC and len(game._column_series[choice.col_dest]) == 0
 
-        # negative value, as high value = bad
-        gap_bases = (min(state.bases_len) - max(state.bases_len)) / 13.0
+        from_fc = choice.col_orig == fc.COL_FC
+        split_serie = choice.col_orig != fc.COL_FC and len(game._column_series[choice.col_orig]) > len(choice.cards)
+        empty_col = choice.col_orig != fc.COL_FC and len(game.fcboard.columns[choice.col_orig]) == len(choice.cards)
 
-        in_serie = sum([len(state.column_series[i]) for i in range(0, fc.COLUMN)]) / (52.0 - state.in_base)
+        discover_base = False
+        if not from_fc and not empty_col:
+            next_c = game.fcboard.columns[choice.col_orig][-(len(choice.cards)+1)]
+            discover_base = next_c.num == len(game.fcboard.bases.get(next_c.suit))+1
 
-        mvt = min(state.max_mvt / 13.0, 1.0)
+        v = (to_base, to_fc, to_serie, to_emptycol, from_fc, split_serie, empty_col, discover_base)
+        return vector_multiply(v, self.coeffs[5:])
 
-        choices = state.compute_choices()
-        to_base = 0.0
-        from_fc = 0.0
-        for c in choices:
-            if c.col_dest == fc.COL_BASE:
-                to_base += 1.0
-            if c.col_orig == fc.COL_FC:
-                from_fc += 1.0
-        if len(choices) > 0:
-            to_base = to_base / len(choices)
-            from_fc = from_fc / len(choices)
+    def solve(self, game):
+        ngame = game
+        # Return to last best weigthed state 
+        # (board, n moves, list of moves done on that state, last best weight)
+        best_states = []
+        last_best_weight = -10000
+        state_moves_done = []    
 
-        return (in_base_norm, gap_bases, in_serie, mvt, to_base, from_fc)
+        moves = []
+        moves_hash = []
+        max_in_base = 0
+        global_iter = 0
+        while global_iter < MAX_ITER:
+            #print(global_iter)
+            #print(ngame.fcboard)
+            #input()
 
-    # ---- Main methods ----        
-    def solve(self, init_state):
-        # reset
-        self._iter = 0
-        self._max_in_bases = 0
-        self._path = []
-        self._path_hash = set()
-        self._moves_wo_progress = 0
+            global_iter += 1
 
-        # Play
-        print(self.name, "playing...", end="", flush=True)
-        swv = Solver.compute_state_weight(init_state)
-        sw = self._weight_state(swv, ZERO_STATE)
-        ret = False
-        try:
-            ret = self._play(StateData(init_state, sw, None, "", swv), MIN_WEIGHT)
-        except RecursionError:
-            pass
+            # Verifiy won
+            len_bases = [len(ngame.fcboard.bases.get(k)) for k in fc.SUITS]
+            if sum(len_bases) == 52:
+                return (True, moves, global_iter)
+            max_in_base = max(sum(len_bases), max_in_base)
+
+            all_choices = ngame.list_choices()
+            state_weight, swv = self._weight_state(len_bases, ngame, all_choices)
+            #print(state_weight)
+
+            # list & sort choices
+            # (choice, hash, weight)
+            choices_weighted = []
+            for c in all_choices:
+                chash = self._hash_choice(c, ngame.fcboard)
+                if chash in moves_hash or chash in state_moves_done:
+                    continue
+
+                cweight = self._weight_choice(c, ngame, swv[2], swv[3])
+                choices_weighted.append((c, chash, cweight))
+            choices_weighted.sort(key=lambda x: x[2], reverse=True)
+
+            # go to next state
+            if len(choices_weighted) > 0:
+                c = choices_weighted[0][0]
+                ch = choices_weighted[0][1]
+                #print("MOVE:", c)
+
+                # Save current if best
+                state_moves_done.append(ch)
+                if state_weight >= last_best_weight:
+                    best_states.append((ngame.fcboard.clone(), len(moves), state_moves_done, last_best_weight))
+                    last_best_weight = state_weight
+                state_moves_done = []
+
+                moves.append(c)
+                moves_hash.append(ch)
+                ngame.apply(c)
+            else:
+                # return to last best state
+                if len(best_states) > 0:
+                    #print("JUMP BACK!")
+                    board, last_move_id, state_moves_done, last_best_weight = best_states.pop()
+                    ngame = fc.FCGame("", board)
+                    moves = moves[:last_move_id]
+                    moves_hash = moves_hash[:last_move_id]
+                else:
+                    break
         
-        # Update stats
-        in_base_mean_sum = self.stats.in_base_mean*self.stats.nplayed
-        move_mean_sum = self.stats.move_mean*self.stats.nsuccess
-        iter_mean_sum = self.stats.iter_mean*self.stats.nsuccess
-        self.stats.nplayed += 1
-        self.stats.in_base_mean = (in_base_mean_sum + self._max_in_bases) / self.stats.nplayed
-        if ret:
-            print(fc.TermColor.GREEN + "true" + fc.TermColor.ENDC, len(self._path), self._iter)
-            self.stats.nsuccess += 1
-            self.stats.move_mean = (move_mean_sum + len(self._path)) / self.stats.nsuccess
-            self.stats.iter_mean = (iter_mean_sum + self._iter) / self.stats.nsuccess
-        else:
-            print(fc.TermColor.RED + "false" + fc.TermColor.ENDC, self._max_in_bases, self._iter)
+        return (False, max_in_base, None)
+            
+    def make_kids(self, nkids):
+        pass
 
-        return self._path
-    
-    # --- Recurse methods ---
-    def _weight_state(self, weight_vector, curr_state_wv):
-        """ curr_state -> coeff
-            coeff*weight_vector -> weight
-        """
-        # Won
-        if weight_vector == WINNING_STATE:
-            return MAX_WEIGHT
-
-        # Compute coeffs
-        coeffs = []
-        for i in range(PARAMS):
-            c = 0
-            for j in range(PRIMARY_PARAMS):
-                c += self.strategy_coeffs[(i*PRIMARY_PARAMS+1)+j]*curr_state_wv[j]
-            # add constant
-            c += self.strategy_coeffs[(i*PRIMARY_PARAMS+1)+PRIMARY_PARAMS]
-            coeffs.append(c)
-
-        # Compute weight
-        ret = 0
-        for i in range(PARAMS):
-            ret += weight_vector[i]*coeffs[i]
-        return ret
-
-    def _play(self, state_data, best_weight):
-        #print(self._iter, len(self._path), state_data.state.in_base, move_wo_progress)
-        self._iter += 1
-        if self._iter > MAX_ITER or len(self._path) > MAX_MOVES:
-            raise RecursionError()
-        
-        self._max_in_bases = max(state_data.state.in_base, self._max_in_bases)
-
-        self._path.append(state_data.choice)
-        self._path_hash.add(state_data.choice_hash)
-
-        if state_data.state.is_won:
-            return True
-        
-        # keep knowledge of best visited state
-        not_better = state_data.weight < best_weight
-        nbw = max(state_data.weight, best_weight)
-        
-        # Compute & sort list of next accessible state
-        next_states_data = []
-        for c in state_data.state.compute_choices():
-            # skip choice that we already did/revert past ones
-            hc = Solver.hash_choice(c, state_data.state)
-            if hc in self._path_hash:
-                continue
-          
-            ns = state_data.state.apply(c)
-            swv = Solver.compute_state_weight(ns)
-            sw = self._weight_state(swv, state_data.weight_vector)
-            next_states_data.append(StateData(ns, sw, c, hc, swv))
-        next_states_data.sort(key=lambda x: x.weight, reverse=True)
-
-        # recurse on next states, stop when won or if state is not best
-        ret = False
-        for nsd in next_states_data:
-            ret = self._play(nsd, nbw)
-            if ret or not_better:
-                break
-
-        if not ret:
-            self._path.pop()
-            self._path_hash.remove(state_data.choice_hash)
-        return ret
-    
-    # ---- Evolution algo methods ----
-    def make_kids(self, nk, include_itself):
-        # return nk kids 
-        ret = []
-        if nk > 0:
-            mk = nk
-            if include_itself:
-                ret = [self]
-                mk -= 1
-
-            for i in range(mk):
-                ncoeffs = []
-                for c in self.strategy_coeffs:
-                    nc = c + random.gauss(0, KIDS_SIGMA)
-                    nc = max(0, nc)
-                    nc = min(100,nc)
-                    ncoeffs.append(nc)
-                ret.append(Solver(self.name + ":%d"%i, ncoeffs))
-        return ret
-    
-    def __eq__(self, other):
-        return self.stats.__eq__(other.stats)
-
-    def __lt__(self, other):
-        return self.stats.__lt__(other.stats)
         
 # ----- Program functions -----
 def get_strategies():
@@ -284,16 +155,24 @@ def get_strategies():
     return ret
 
 def solve_game(game):
-    # TODO
-    
+    solvers = []
+    for _ in range(99):
+        r = []
+        for _ in range(PARAMS):
+            r.append(200*random.random()-100)
+        solvers.append(r)
+
     for s in solvers:
-        print(s)
-        solver = Solver(game.state, s)
-        res = solver.solve()
-        if len(res) > 0:
-            for c in res:
-                print(c)
-            break
+        ngame = fc.FCGame("", game.fcboard.clone())
+        #print(s)
+        solver = Solver(s)
+        res, m, b = solver.solve(ngame)
+        if res:
+            print(True, len(m), b)
+            #for a in m:
+            #    print(a)
+        else:
+            print(False, m)
 
 def train(loop, games_id, nrandom, nkids):
     known_strategies = []
@@ -360,7 +239,7 @@ def train(loop, games_id, nrandom, nkids):
         f.write(str(best_solvers[0].strategy_coeffs) + "\n")
     print("Best solver added to database!")
 
-    
+# ------ Main Solver script --------    
 if __name__ == "__main__":
 
     usage = "./fcml2022.py solve <game file>\n" + \
@@ -374,6 +253,8 @@ if __name__ == "__main__":
 
     # Training mode
     if sys.argv[1] == "train":
+        print("TODO")
+        exit(1)
         if len(sys.argv) < 5:
             print(usage)
             exit(1)
@@ -417,7 +298,7 @@ if __name__ == "__main__":
 
         filename = sys.argv[2]
         try:
-            game = fc.FreecellGame.from_file(filename)
+            game = fc.FCGame("lala", fc.FCBoard.init_from_file(filename))
         except:
             print("Please give a valid game file")
             exit(1)

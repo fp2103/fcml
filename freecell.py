@@ -113,6 +113,12 @@ class FCBoard(object):
             game_line.append("\t".join(line))
         return "\n".join(game_line)
     
+    def clone(self):
+        f = list(self.freecells)
+        b = dict((k, list(self.bases.get(k))) for k in SUITS)
+        c = [list(self.columns[i]) for i in range(COLUMN)]
+        return FCBoard(f, b, c)
+    
     def is_won(self):
         return sum([len(self.bases.get(k)) for k in SUITS]) == 52
 
@@ -267,7 +273,8 @@ class FCGame(object):
 
         # Bases
         for suit, base in self.fcboard.bases.items():
-            choices.extend(self._find_choice_from_cards(len(base)+1, [suit], 0, COL_BASE))
+            if len(base) < 13:
+                choices.extend(self._find_choice_from_cards(len(base)+1, [suit], 0, COL_BASE))
         
         for cid in range(COLUMN):
             col = self._column_series[cid]
