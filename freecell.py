@@ -208,7 +208,7 @@ class FCBoard(object):
 
 class FCGame(object):
     def __init__(self, name, fcboard):
-        self.name = name
+        self.name = str(name)
         self.fcboard = fcboard
 
         self._column_series = [self._get_column_series(i) for i in range(COLUMN)]
