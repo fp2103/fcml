@@ -9,7 +9,7 @@ import sys
 import random
 import freecell as fc
 
-MAX_ITER = 200000
+MAX_ITER = 2000
 PARAMS = 14
 DBFILE = "solvers.db"
 KIDS_SIGMA = 2.0
@@ -38,7 +38,9 @@ class Solver(object):
         choices_coeff = min(len(all_choices) / 30.0, 1.0)
 
         v = (in_bases, gap_bases, in_serie, mvt_max, choices_coeff)
+        v2 = (52, 7, 52, 13, 30)
         return vector_multiply(v, self.coeffs[0:5]), v
+        #return vector_multiply(v, v2), v
         
     def _hash_choice(self, choice, fcboard):
         ret = ",".join([c.name for c in choice.cards]) + ":"
@@ -105,6 +107,7 @@ class Solver(object):
                     continue
 
                 cweight = self._weight_choice(c, ngame, swv[2], swv[3])
+                #cweight = random.randint(0, 100)
                 choices_weighted.append((c, chash, cweight))
             choices_weighted.sort(key=lambda x: x[2], reverse=True)
 
