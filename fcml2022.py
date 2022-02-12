@@ -206,7 +206,7 @@ def solve_game_evol(game):
 
         solvers_sorter = past_bests[:]
         for s in new_solvers:
-            print(s.name, "...", end="", flush=True)
+            print("%s, %s"%(s.name, game.name), "...", end="", flush=True)
             ret, mib, m, q = s.solve_w_stats(fc.FCGame(game.name, game.fcboard.clone()))
             if ret:
                 print(fc.TermColor.GREEN + "True" + fc.TermColor.ENDC, m, q)
@@ -256,9 +256,9 @@ def solve_game_evol(game):
     return ret
 
 def play_multiple_games(solver, games_board):
-    print("Solve with", solver.name)
+    print("Solve with", solver.name, "(%d games)"%len(games_board))
     for gid, gb in games_board.items():
-        print(gid, "...", end="", flush=True)
+        print("%s, %s"%(solver.name, str(gid)), "...", end="", flush=True)
         ret, mib, m, q = solver.solve_w_stats(fc.FCGame(gid, gb.clone()))
         if ret:
             print(fc.TermColor.GREEN + "True" + fc.TermColor.ENDC, m, q)
@@ -332,6 +332,7 @@ def train(loop, games_id, nkids):
             unsolved_games.discard(gid)
     
     while len(unsolved_games) > 0:
+        print(len(unsolved_games), "still unsolved")
         g = unsolved_games.pop()
         print()
         s_found = solve_game_evol(fc.FCGame(g, games_init_board.get(g).clone()))
@@ -339,7 +340,7 @@ def train(loop, games_id, nkids):
             print("Game", g, "seems unsolvable")
             unsolvable_games.add(g)
         else:
-            print("Solver for game", g, "found, save it then make it play other games")
+            print("Solver for game", g, "found, save it then make it play all other games")
             solvers.append(s_found)
             with open(DBFILE, 'a+') as f:
                 f.write(str(s_found.coeffs) + "\n")
@@ -348,7 +349,7 @@ def train(loop, games_id, nkids):
                 unsolved_games.discard(g2)
                 unsolvable_games.discard(g2)
 
-    print("Games still unsolved:", unsolvable_games)
+    print("Games unsolvable:", unsolvable_games)
     solvers_diverse = sort_solvers(solvers, games_id, unsolvable_games)
 
     for l in range(1, loop):
