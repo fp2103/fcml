@@ -8,6 +8,8 @@ Solve Freecell with tree search and evolutionary algorithm on best solvers
 import sys
 import random
 import freecell as fc
+import time
+import multiprocessing as mp
 
 MAX_ITER = 2000
 PARAMS = 14
@@ -255,15 +257,44 @@ def solve_game_evol(game):
         ret = b[0]
     return ret
 
-def play_multiple_games(solver, games_board):
-    print("Solve with", solver.name, "(%d games)"%len(games_board))
+def play_multiprocessed(que, solver, games_board):
+    i = 0
     for gid, gb in games_board.items():
-        print("%s, %s"%(solver.name, str(gid)), "...", end="", flush=True)
         ret, mib, m, q = solver.solve_w_stats(fc.FCGame(gid, gb.clone()))
         if ret:
-            print(fc.TermColor.GREEN + "True" + fc.TermColor.ENDC, m, q)
+            print("%s, %d/%d, %s"%(solver.name, i, len(games_board), str(gid)), "...", fc.TermColor.GREEN + "True" + fc.TermColor.ENDC, m, q)
         else:
-            print(fc.TermColor.RED + "False" + fc.TermColor.ENDC, mib)
+            print("%s, %d/%d, %s"%(solver.name, i, len(games_board), str(gid)), "...", fc.TermColor.RED + "False" + fc.TermColor.ENDC, mib)
+        que.put((gid, ret, mib, m, q))
+        i += 1
+
+def play_multiple_games(solver, games_board):
+    print("Solve with", solver.name, "(%d games)"%len(games_board))
+
+    # Separate games list
+    gids = list(games_board.keys())
+    random.shuffle(gids)
+    gba = dict()
+    gbb = dict()
+    while len(gids) > 0:
+        a = gids.pop()
+        gba[a] = games_board.get(a)
+        if len(gids) > 0:
+            b = gids.pop()
+            gbb[b] = games_board.get(b)
+    
+    # Solve in Process
+    que = mp.Queue()
+    p1 = mp.Process(target=play_multiprocessed, args=(que, solver, gba))
+    p2 = mp.Process(target=play_multiprocessed, args=(que, solver, gbb))
+    p1.start()
+    p2.start()
+    for _ in range(len(games_board)):
+        g = que.get()
+        solver.played_data[str(g[0])] = (g[1], g[2], g[3], g[4])
+    p1.join()
+    p2.join()
+
     stats, solved = solver.get_stats(games_board.keys())
     print("Win:", stats[0], "in_bases mean:", stats[1], "moves mean:", -stats[2], "iter mean:", -stats[3])
     return solved
@@ -443,5 +474,3 @@ if __name__ == "__main__":
         exit(1)
     
     exit(0)
-
-# 353,425
