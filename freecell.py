@@ -212,6 +212,7 @@ class FCGame(object):
         self.fcboard = fcboard
 
         self._column_series = [self._get_column_series(i) for i in range(COLUMN)]
+        self._last_max_mvt = 0
     
     def _get_column_series(self, col_id):
         col = self.fcboard.columns[col_id]
@@ -235,6 +236,7 @@ class FCGame(object):
         freecol = sum([len(col) == 0 for col in self.fcboard.columns])
         max_mvt = (1 + FREECELL - len(self.fcboard.freecells)) * (1 + freecol)
         max_mvt_freecol_dst =  (1 + FREECELL - len(self.fcboard.freecells)) * freecol
+        self._last_max_mvt = max_mvt
         return (max_mvt, max_mvt_freecol_dst)
     
     def _find_choice_from_cards(self, num, suits, height_max, col_dest):
@@ -261,7 +263,7 @@ class FCGame(object):
                 col = self._column_series[cid]
                 if card in col:
                     idx = col.index(card)
-                    if (len(col) - idx) <= height_max+1:
+                    if (len(col) - idx) <= height_max:
                         ret.append(Choice(col[idx:], cid, col_dest))
                         break
         return ret  
@@ -274,7 +276,7 @@ class FCGame(object):
         # Bases
         for suit, base in self.fcboard.bases.items():
             if len(base) < 13:
-                choices.extend(self._find_choice_from_cards(len(base)+1, [suit], 0, COL_BASE))
+                choices.extend(self._find_choice_from_cards(len(base)+1, [suit], 1, COL_BASE))
         
         for cid in range(COLUMN):
             col = self._column_series[cid]

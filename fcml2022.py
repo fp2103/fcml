@@ -7,16 +7,18 @@ Solve Freecell with tree search and evolutionary algorithm on best solvers
 
 import sys
 import random
-import freecell as fc
 import time
 import multiprocessing as mp
 
+import freecell as fc
+
+MAX_STRATEGIES = 4
 MAX_ITER = 2000
 PARAMS = 14
 DBFILE = "solvers.db"
 KIDS_SIGMA = 2.0
 
-MAX_SOLVERS = 1000
+MAX_SOLVERS = 200
 NKIDS = 10
 
 def vector_multiply(v1, v2):
@@ -29,35 +31,29 @@ class Solver(object):
     def __init__(self, name, coeffs):
         self.name = name
         self.coeffs = coeffs
+        self.coeffs_state = coeffs[:5]
+        self.coeffs_choice = coeffs[5:]
 
+        # {gameid: (True/False, max_in_bases, len(moves), iter)}
         self.played_data = dict()
     
-    def _weight_state(self, len_bases, game, all_choices):
-        in_bases = sum(len_bases) / 52.0
-        gap_bases = (min(len_bases) - max(len_bases)) / 13.0
-        in_serie = sum([len(game._column_series[i]) for i in range(fc.COLUMN)]) / (52.0 - sum(len_bases))
-        mvt_max = min(game._get_mvt_max()[0] / 13.0, 1.0)
-        choices_coeff = min(len(all_choices) / 30.0, 1.0)
-
-        v = (in_bases, gap_bases, in_serie, mvt_max, choices_coeff)
-        v2 = (52, 7, 52, 13, 30)
-        return vector_multiply(v, self.coeffs[0:5]), v
-        #return vector_multiply(v, v2), v
-        
-    def _hash_choice(self, choice, fcboard):
+    def _hash_state(self, game):
+        pass
+    
+    def _hash_choice(self, game, choice):
         ret = ",".join([c.name for c in choice.cards]) + ":"
         col_orig_str = choice.col_orig
         if choice.col_orig != fc.COL_FC:
-            col_orig_str = ",".join([c.name for c in fcboard.columns[choice.col_orig][:-len(choice.cards)]])
+            col_orig_str = ",".join([c.name for c in game.fcboard.columns[choice.col_orig][:-len(choice.cards)]])
         col_dest_str = choice.col_dest
         if choice.col_dest != fc.COL_BASE and choice.col_dest != fc.COL_FC:
-            col_dest_str = ",".join([c.name for c in fcboard.columns[choice.col_dest]])
+            col_dest_str = ",".join([c.name for c in game.fcboard.columns[choice.col_dest]])
         ret += "-".join(sorted([col_orig_str, col_dest_str]))
         return ret
-
-    def _weight_choice(self, choice, game, in_serie, mvt_max):
+    
+    def _weight_choice(self, game, choice, mvt_max, in_series):
         to_base = choice.col_dest == fc.COL_BASE
-        to_base_p = to_base * 300 * (in_serie**5)
+        to_base_p = to_base * 300 * (in_series**5)
         to_fc = choice.col_dest == fc.COL_BASE
         to_fc_p = to_fc * mvt_max
         to_serie = choice.col_dest != fc.COL_BASE and choice.col_dest != fc.COL_FC and len(game._column_series[choice.col_dest]) > 0
@@ -73,8 +69,7 @@ class Solver(object):
             discover_base = next_c.num == len(game.fcboard.bases.get(next_c.suit))+1
 
         v = (to_base, to_fc, to_fc_p, to_serie, to_emptycol, from_fc, split_serie, empty_col, discover_base)
-        w = vector_multiply(v, self.coeffs[5:]) + to_base_p
-        return w
+        return vector_multiply(v, self.coeffs_choice) + to_base_p
     
     def solve(self, game): # -> (True/False, max_in_bases, moves, iter)
         ngame = game
@@ -82,34 +77,46 @@ class Solver(object):
         # (board, n moves, list of moves done on that state, last best weight)
         best_states = []
         last_best_weight = -10000
-        state_moves_done = []    
+        state_moves_done = set()
 
-        moves = []
-        moves_hash = []
+        moves = [] # (move, hash)
+        moves_hash = set()
         max_in_base = 0
         global_iter = 0
         while global_iter < MAX_ITER:
             global_iter += 1
 
-            # Verifiy won
-            len_bases = [len(ngame.fcboard.bases.get(k)) for k in fc.SUITS]
-            if sum(len_bases) == 52:
-                return (True, 52, moves, global_iter)
-            max_in_base = max(sum(len_bases), max_in_base)
-
+            # State status
+            len_bases = [len(b) for b in ngame.fcboard.bases.values()]
+            in_bases = sum(len_bases)
+            if in_bases == 52:
+                return (True, 52, [m[0] for m in moves], global_iter)
+            max_in_base = max(in_bases, max_in_base)
+            gap_bases = max(len_bases) - min(len_bases)
+            in_series = sum([len(c) for c in ngame._column_series]) + in_bases
+            
+            # get all choices
             all_choices = ngame.list_choices()
-            state_weight, swv = self._weight_state(len_bases, ngame, all_choices)
+            
+            # compute state weight
+            mvt_max_coeff = min(ngame._last_max_mvt/13.0, 1.0)
+            in_series_coeff = in_series/52.0
+            state_weight = vector_multiply((in_bases/52.0,
+                                            gap_bases/13.0,
+                                            in_series_coeff,
+                                            mvt_max_coeff,
+                                            min(len(all_choices)/30.0, 1.0)), 
+                                           self.coeffs_state)
 
             # list & sort choices
             # (choice, hash, weight)
             choices_weighted = []
             for c in all_choices:
-                chash = self._hash_choice(c, ngame.fcboard)
+                chash = self._hash_choice(ngame, c)
                 if chash in moves_hash or chash in state_moves_done:
                     continue
 
-                cweight = self._weight_choice(c, ngame, swv[2], swv[3])
-                #cweight = random.randint(0, 100)
+                cweight = self._weight_choice(ngame, c, mvt_max_coeff, in_series_coeff)
                 choices_weighted.append((c, chash, cweight))
             choices_weighted.sort(key=lambda x: x[2], reverse=True)
 
@@ -119,22 +126,23 @@ class Solver(object):
                 ch = choices_weighted[0][1]
 
                 # Save current if best
-                state_moves_done.append(ch)
+                state_moves_done.add(ch)
                 if state_weight >= last_best_weight:
                     best_states.append((ngame.fcboard.clone(), len(moves), state_moves_done, last_best_weight))
                     last_best_weight = state_weight
-                state_moves_done = []
+                state_moves_done = set()
 
-                moves.append(c)
-                moves_hash.append(ch)
+                moves.append((c, ch))
+                moves_hash.add(ch)
                 ngame.apply(c)
             else:
                 # return to last best state
                 if len(best_states) > 0:
                     board, last_move_id, state_moves_done, last_best_weight = best_states.pop()
                     ngame = fc.FCGame(ngame.name, board)
-                    moves = moves[:last_move_id]
-                    moves_hash = moves_hash[:last_move_id]
+                    while len(moves) > last_move_id:
+                        m = moves.pop()
+                        moves_hash.discard(m[1])
                 else:
                     break
         
@@ -173,7 +181,6 @@ class Solver(object):
             coeffs = [(c + random.gauss(0.0, KIDS_SIGMA)) for c in self.coeffs]
             ret.append(Solver("%s:%d" % (self.name, i), coeffs))
         return ret
-
         
 # ----- Program functions -----
 def get_strategies():
@@ -185,14 +192,14 @@ def get_strategies():
             coeffs = [float(c) for c in line.replace('[', '').replace(']', '').split(',')]
             ret.append(Solver("f%d"%i, coeffs))
             i += 1
-    print(len(ret), "solvers retreived")
+    print("Retrieved %d strategies" % len(ret))
     return ret
 
 def solve_game(game):
     pass
 
 def solve_game_evol(game):
-    print("Find solver for game", game.name)
+    print("Find Solver coeffs for game", game.name)
 
     new_solvers = []
     for r in range(NKIDS):
@@ -299,40 +306,66 @@ def play_multiple_games(solver, games_board):
     print("Win:", stats[0], "in_bases mean:", stats[1], "moves mean:", -stats[2], "iter mean:", -stats[3])
     return solved
 
-def sort_solvers(solvers, games_id, unsolvables):
-    print("Best solvers:")
+def sort_single_solvers(solvers, games_id):
+    solvers_w_stats = []
+    for s in solvers:
+        stat, _ = s.get_stats(games_id)
+        solvers_w_stats.append((s, stat))
+    solvers_w_stats.sort(key=lambda x: x[1], reverse=True)
+    return [s[0] for s in solvers_w_stats]
 
-    solvers_diverse = []
-    solvers_remaining = solvers[:]
-    all_gids = set(games_id)
-    for u in unsolvables:
-        all_gids.remove(u)
-    while len(all_gids) > 0 and len(solvers_remaining) > 0:
-        # compute stats on games
-        solvers_sorter = []
-        for s in solvers_remaining:
-            stats, solved = s.get_stats(all_gids)
-            solvers_sorter.append((s, stats, solved))
-        solvers_sorter.sort(key=lambda x: x[1], reverse=True)
+def sort_solvers(solvers, games_id):
+    max_starts = min(len(solvers), MAX_STRATEGIES)
+    print("Best %d solvers:" % max_starts)
 
-        best = solvers_sorter[0][0]
-        print(best.name, solvers_sorter[0][2])
-        for b in solvers_sorter[0][2]:
-            all_gids.remove(b)
+    solvers_associations = [] # [solvers], stats, unsolved
+    cursors = list(range(max_starts))
+    endcursors = False
+    while not endcursors:
+        ss = []
+        for c in cursors:
+            ss.append(solvers[c])
 
-        solvers_diverse.append(best)
-        nsolvers_remaining = []
-        for s in solvers_remaining:
-            if s.name != best.name:
-                nsolvers_remaining.append(s)
-        solvers_remaining = nsolvers_remaining
+        gids = set(games_id)
+        winsum = 0
+        inbasesum = 0
+        movessum = 0
+        itersum = 0
+        for s in ss:
+            stat, solved = s.get_stats(games_id)
+            winsum += stat[0]
+            inbasesum += stat[1]*len(games_id)
+            movessum += -stat[2]*stat[0]
+            itersum += -stat[3]*stat[0]
+            for g in solved:
+                gids.discard(g)
+        stats = (len(games_id)-len(gids), inbasesum/(max_starts*len(games_id)), 
+                    -movessum/winsum if winsum > 0 else 0, -itersum/winsum if winsum > 0 else 0)
+        solvers_associations.append((ss, stats, gids))
+        
+        endcursors = True
+        for i in range(max_starts-1, -1, -1):
+            if cursors[i] < len(solvers)-(max_starts-i):
+                cursors[i] += 1
+                for j in range(i+1, max_starts):
+                    cursors[j] = cursors[j-1]+1
+                endcursors = False
+                break
+    solvers_associations.sort(key=lambda x: x[1], reverse=True)
+
+    best_association = solvers_associations[0]
+    ret = sort_single_solvers(best_association[0], games_id)
+    for s in ret:
+        st, _ = s.get_stats(games_id)
+        print(s.name, st)
+    print("Bests total win:", best_association[1][0], "doesn't solve:", str(best_association[2]))
 
     with open(DBFILE, 'w+') as f:
-        for s in solvers_diverse:
+        for s in ret:
             f.write(str(s.coeffs) + "\n")
-        print("Saved!")
+    print("Saved!")
 
-    return solvers_diverse
+    return ret
 
 def train(loop, games_id, nkids):
     known_strategies = []
@@ -353,23 +386,26 @@ def train(loop, games_id, nkids):
 
     # Loop
     unsolved_games = set(games_id)
-    unsolvable_games = set()
     solvers = known_strategies
     print()
+    # iteration 0: play all games and find unsolved ones
     print("Iteration: 0/%d" % (loop-1))
     for s in solvers:
+        sta = time.time()
         solved = play_multiple_games(s, games_init_board)
+        end = time.time()
+        print("time:", end-sta)
         for gid in solved:
             unsolved_games.discard(gid)
     
+    # solve unsolved
     while len(unsolved_games) > 0:
-        print(len(unsolved_games), "still unsolved")
+        print(len(unsolved_games), "still unsolved", str(unsolved_games))
         g = unsolved_games.pop()
         print()
         s_found = solve_game_evol(fc.FCGame(g, games_init_board.get(g).clone()))
         if s_found is None:
-            print("Game", g, "seems unsolvable")
-            unsolvable_games.add(g)
+            print("Solver not found for", g)
         else:
             print("Solver for game", g, "found, save it then make it play all other games")
             solvers.append(s_found)
@@ -378,11 +414,10 @@ def train(loop, games_id, nkids):
             solved = play_multiple_games(s_found, games_init_board)
             for g2 in solved:
                 unsolved_games.discard(g2)
-                unsolvable_games.discard(g2)
 
-    print("Games unsolvable:", unsolvable_games)
-    solvers_diverse = sort_solvers(solvers, games_id, unsolvable_games)
+    solvers_diverse = sort_solvers(solvers, games_id)
 
+    # iteration n:
     for l in range(1, loop):
         print()
         print()
@@ -396,12 +431,9 @@ def train(loop, games_id, nkids):
             print()
             print("%d/%d"%(ni, len(new_solvers)))
             ni += 1
-            solved = play_multiple_games(n, games_init_board)
-            for g2 in solved:
-                unsolvable_games.discard(g2)
+            play_multiple_games(n, games_init_board)
         
-        print("Games still unsolved:", unsolvable_games)
-        solvers_diverse = sort_solvers(solvers_diverse+new_solvers, games_id, unsolvable_games)
+        solvers_diverse = sort_solvers(solvers_diverse+new_solvers, games_id)
 
     
 # ------ Main Solver script --------    
@@ -474,3 +506,10 @@ if __name__ == "__main__":
         exit(1)
     
     exit(0)
+
+
+# TODO:
+# b. multiprocess N
+# c. solve (random + multiprocessed)
+# d. UI
+# 
