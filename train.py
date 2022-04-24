@@ -134,26 +134,25 @@ def play_multiple_games(solver, games_board):
     # Separate games list
     gids = list(games_board.keys())
     random.shuffle(gids)
-    gba = dict()
-    gbb = dict()
+    gbs = [dict() for _ in range(p.NPROCESS)]
     while len(gids) > 0:
-        a = gids.pop()
-        gba[a] = games_board.get(a)
-        if len(gids) > 0:
-            b = gids.pop()
-            gbb[b] = games_board.get(b)
-    
+        for i in range(p.NPROCESS):
+            if len(gids) > 0:
+                a = gids.pop()
+                gbs[i][a] = games_board.get(a)
+        
     # Solve in Process
     que = mp.Queue()
-    p1 = mp.Process(target=play_multiprocessed, args=(que, solver, gba))
-    p2 = mp.Process(target=play_multiprocessed, args=(que, solver, gbb))
-    p1.start()
-    p2.start()
+    ps = []
+    for i in range(p.NPROCESS):
+        proc = mp.Process(target=play_multiprocessed, args=(que, solver, gbs[i]))
+        ps.append(proc)
+        proc.start()
     for _ in range(len(games_board)):
         g = que.get()
         solver.played_data[str(g[0])] = (g[1], g[2], g[3], g[4])
-    p1.join()
-    p2.join()
+    for i in range(p.NPROCESS):
+        ps[i].join()
 
     stats, solved = solver.get_stats(games_board.keys())
     print("Win:", stats[0], "in_bases mean:", stats[1], "moves mean:", -stats[2], "iter mean:", -stats[3])

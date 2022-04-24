@@ -39,6 +39,9 @@ def hash_choice(game, choice):
     ret += "-".join(sorted([col_orig_str, col_dest_str]))
     return ret
 
+def non_stop_func():
+    return False
+
 class SolverCoeff(object):
     """
     Navigate tree by weighting state and choice using coeff
@@ -81,7 +84,7 @@ class SolverCoeff(object):
         to_base_force = to_base * 1000 * (in_series**3)
         return vector_multiply(v, self.coeffs_choice) + to_base_force
     
-    def solve(self, game): # -> (True/False, max_in_bases, moves, iter)
+    def solve(self, game, stop_func=non_stop_func): # -> (True/False, max_in_bases, moves, iter)
         ngame = game
         # Return to last best weigthed state 
         best_states = [] # (board, n moves, list of moves done on that state, last best weight)
@@ -92,7 +95,7 @@ class SolverCoeff(object):
         moves_hash = set()
         max_in_base = 0
         global_iter = 0
-        while global_iter < p.MAX_ITER:
+        while global_iter < p.MAX_ITER and not stop_func():
             global_iter += 1
 
             # State status
@@ -155,26 +158,27 @@ class SolverRandom(object):
     """
     Navigate tree randomly
     """
-    def __init__(self):
+    def __init__(self, id):
+        self.id = id
         self.noexit = set()
 
-    def solve(self, game): # -> (True/False, max_in_bases, moves, iter)
-        for i in range(p.MAX_SOLVERS):
-            g = fc.FCGame(game.name, game.fcboard.clone())
-            ret = self.solve_random(g)
-            print(i, ret[0], ret[1], ret[3], len(ret[2]), len(self.noexit))
-            if ret[0]:
-                break
-        return i
+    #def solve(self, game, stop_func=non_stop_func): # -> (True/False, max_in_bases, moves, iter)
+    #    for i in range(p.MAX_SOLVERS):
+    #        g = fc.FCGame(game.name, game.fcboard.clone())
+    #        ret = self.solve_random(g, stop_func)
+    #        print(i, ret[0], ret[1], ret[3], len(ret[2]), len(self.noexit))
+    #        if ret[0]:
+    #            break
+    #    return i
     
-    def solve_random(self, game):
+    def solve(self, game, stop_func, noexit_queue): # -> (True/False, max_in_bases, moves, iter)
         moves = [] # (move, hash)
         moves_hash = set()
         global_iter = 0
         previous_chs = [] # list of hash made on a move
         current_ch = set()
         max_in_base = 0
-        while global_iter < p.MAX_ITER:
+        while global_iter < p.MAX_ITER and not stop_func():
             global_iter += 1
 
             hashst = hash_state(game)
@@ -211,6 +215,7 @@ class SolverRandom(object):
                 # go to previous state
                 else:
                     self.noexit.add(hashst)
+                    noexit_queue.put((id, hashst))
                     goback = True
             
             if goback and len(moves) > 0:            
