@@ -173,9 +173,10 @@ def sort_solvers(solvers, games_id):
     max_starts = min(len(solvers), p.MAX_STRATEGIES)
     print("Best %d solvers:" % max_starts)
 
-    solvers_associations = [] # [solvers], stats, unsolved
     cursors = list(range(max_starts))
     endcursors = False
+    max_stats = (0,0,-1000,-p.MAX_ITER)
+    best_association = ([], max_stats, set(games_id))
     while not endcursors:
         ss = []
         for c in cursors:
@@ -196,19 +197,21 @@ def sort_solvers(solvers, games_id):
                 gids.discard(g)
         stats = (len(games_id)-len(gids), inbasesum/(max_starts*len(games_id)), 
                     -movessum/winsum if winsum > 0 else 0, -itersum/winsum if winsum > 0 else 0)
-        solvers_associations.append((ss, stats, gids))
+        if stats > max_stats:
+            max_stats = stats
+            best_association = (ss, stats, gids)
         
         endcursors = True
         for i in range(max_starts-1, -1, -1):
             if cursors[i] < len(solvers)-(max_starts-i):
                 cursors[i] += 1
+                if i == 0:
+                    print("%d/%d" % (cursors[i], len(solvers)-max_starts))
                 for j in range(i+1, max_starts):
                     cursors[j] = cursors[j-1]+1
                 endcursors = False
                 break
-    solvers_associations.sort(key=lambda x: x[1], reverse=True)
-
-    best_association = solvers_associations[0]
+    
     ret = sort_single_solvers(best_association[0], games_id)
     for s in ret:
         st, _ = s.get_stats(games_id)
