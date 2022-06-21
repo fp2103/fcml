@@ -172,6 +172,8 @@ def sort_solvers(solvers, games_id):
     """
     max_starts = min(len(solvers), p.MAX_STRATEGIES)
     print("Best %d solvers:" % max_starts)
+    if max_starts == 0:
+        return []
 
     cursors = list(range(max_starts))
     endcursors = False

@@ -162,15 +162,6 @@ class SolverRandom(object):
         self.id = id
         self.noexit = set()
 
-    #def solve(self, game, stop_func=non_stop_func): # -> (True/False, max_in_bases, moves, iter)
-    #    for i in range(p.MAX_SOLVERS):
-    #        g = fc.FCGame(game.name, game.fcboard.clone())
-    #        ret = self.solve_random(g, stop_func)
-    #        print(i, ret[0], ret[1], ret[3], len(ret[2]), len(self.noexit))
-    #        if ret[0]:
-    #            break
-    #    return i
-    
     def solve(self, game, stop_func, noexit_queue): # -> (True/False, max_in_bases, moves, iter)
         moves = [] # (move, hash)
         moves_hash = set()

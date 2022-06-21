@@ -75,7 +75,7 @@ def worker_process(pid, stop_event, ret_que, solvers_coeff, game, noexit_queue, 
 
         g = fc.FCGame(game.name, game.fcboard.clone())
         ret = sr.solve(g, stop_event.is_set, noexit_queue)
-        print(workername, i, ret[0], ret[3], len(sr.noexit))
+        print(workername, "r%d"%i, ret[0], ret[3], len(sr.noexit))
         if ret[0]:
             stop_event.set()
             ret_que.put((True, ret[2]))
@@ -95,9 +95,16 @@ def solve(game):
     # Separate solver
     sc_list = [[] for _ in range(p.NPROCESS)]
     j = 0
-    for i in range(len(known_strategies)):
-        j = i % p.NPROCESS
-        sc_list[j].append(known_strategies[i])
+    nomoreone = False
+    for ks in known_strategies:
+        sc_list[j].append(ks)
+        if j == 0 and len(sc_list[j]) == p.MAX_STRATEGIES_ONE:
+            nomoreone = True
+            if p.NPROCESS == 1:
+                break
+        j += 1
+        if j >= p.NPROCESS:
+            j = 1 if nomoreone else 0
 
     # create & start Processes
     stop_event = mp.Event()
@@ -209,4 +216,3 @@ if __name__ == "__main__":
 
 # TODO:
 # d. UI
-# 
