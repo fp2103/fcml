@@ -10,10 +10,10 @@ import sys
 import random
 import multiprocessing as mp
 
-import freecell as fc
+import src.model as fc
 import conf as p
 from train import train
-from solvers import SolverCoeff, SolverRandom
+from src.solvers import SolverCoeff, SolverRandom
 
 def get_strategies():
     ret = []

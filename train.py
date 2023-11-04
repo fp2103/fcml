@@ -4,9 +4,9 @@
 import random
 import multiprocessing as mp
 
-import freecell as fc
+import src.model as fc
 import conf as p
-from solvers import SolverCoeff
+from src.solvers import SolverCoeff
 
 
 class SolverCoeffTrain(SolverCoeff):

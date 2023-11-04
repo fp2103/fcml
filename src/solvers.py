@@ -3,7 +3,7 @@
 
 import random
 
-import freecell as fc
+import src.model as fc
 import conf as p
 
 def vector_multiply(v1, v2):
@@ -216,3 +216,25 @@ class SolverRandom(object):
                 current_ch = previous_chs.pop()
         
         return (False, max_in_base, [], global_iter)  
+
+
+#######
+# - move reducer
+#   ex: (1,2,3) colA ; (1,2,3) -> colB ; (3) -> fc ; (1,2) -> colA ; something else ; (3) -> colA
+#   => maybe get that from hash functions
+# 
+#
+# - navigate graph (weight state vs weight choice)
+#    -> weight state => apply move and compute state weight
+#           > go to next max weight (implies to go down on all choices, possible only if choices are not recomputed)
+#    -> weight choice (+ some state info) => tell program what to look for
+#           > go to choice w max weight
+#    
+# pb random is quite efficient too,
+# so my guess is that it'll be hard to find too many coeff,
+# reduce coeff and use a 3d matrix instead, (dest 4 x orig 4 x state 3)
+# 
+# 
+# 
+#    
+#
