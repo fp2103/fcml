@@ -30,16 +30,31 @@ def load_from_file(filename):
         except ValueError:
             raise ValueError("Card %s is present twice" % str(card))
     
-    def split_line(line):
-        # split cards from a line, 4 empty space or tab = col
+    column_space = "    "
+    def split_line(line, header=False):
         l = line.replace('\n', '')
+
+        # measure column space from headline:
+        global column_space
+        if header:
+            try:
+                lsplited = l.split()
+                s = l.index(lsplited[-4])
+                e = l.rindex(lsplited[-1])
+                column_space = ""
+                for _ in range(int((e - s)/3)):
+                    column_space += " "
+            except:
+                raise ValueError("Headline must contains 4 bases")
+
+        # split cards from a line, col spaces empty or tab = col
         ret = []
         i = 0
         j = 1
         r = ""
         while j <= len(l):
             r = l[i:j]
-            if r == "    ":
+            if r == column_space:
                 ret.append('')
                 i = j
             elif '\t' in r:
@@ -58,7 +73,7 @@ def load_from_file(filename):
     
     with open(filename, 'r') as f:
         line = f.readline()
-        headline_split = split_line(line)
+        headline_split = split_line(line, True)
         # Freecells
         fcstr = headline_split[:4]
         for sc in fcstr:
