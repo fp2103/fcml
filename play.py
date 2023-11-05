@@ -70,6 +70,9 @@ if __name__ == "__main__":
         try:
             gid = int(arg1)
         except ValueError as v:
+            game_file = True
+        
+        if game_file:
             game = m.FCGame(save.load_from_file(arg1))
             game_filename = arg1
             
