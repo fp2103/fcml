@@ -74,6 +74,7 @@ def load_from_file(filename):
     with open(filename, 'r') as f:
         line = f.readline()
         headline_split = split_line(line, True)
+        assert all([hs for hs in headline_split[4:]]), "Headline must be containing the 4 bases, spaced accordingly after the freecells"
         # Freecells
         fcstr = headline_split[:4]
         for sc in fcstr:
