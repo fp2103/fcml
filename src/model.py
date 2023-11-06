@@ -44,11 +44,11 @@ class FCBoard(object):
         self.bases = bases          # dict {suit: [cards]}
         self.columns = columns      # list[8][cards]
         
-#    def clone(self):
-#        f = list(self.freecells)
-#        b = dict((k, list(self.bases.get(k))) for k in SUITS)
-#        c = [list(self.columns[i]) for i in range(COLUMN)]
-#        return FCBoard(f, b, c)
+    def clone(self):
+        f = list(self.freecells)
+        b = dict((k, list(self.bases.get(k))) for k in SUITS)
+        c = [list(self.columns[i]) for i in range(COLUMN)]
+        return FCBoard(f, b, c)
     
     def is_won(self):
         return sum([len(self.bases.get(k)) for k in SUITS]) == 52
@@ -83,6 +83,15 @@ class FCBoard(object):
         
         return cls([], dict((k, []) for k in SUITS), columns)
     
+    def compute_hash(self):
+        ret = ".".join(sorted([str(c.uid) for c in self.freecells]))
+        ret += ":"
+        cols = []
+        for i in range(COLUMN):
+            cols.append(".".join([str(c.uid) for c in self.columns[i]]))
+        ret += ":".join(sorted(cols))
+        return ret
+    
     
 class Choice(object):
     def __init__(self, cards, col_orig, col_dest):
@@ -92,6 +101,17 @@ class Choice(object):
     
     def get_reverse(self):
         return Choice(self.cards, self.col_dest, self.col_orig)
+    
+    def compute_hash(self, fcboard):
+        ret = ",".join([c.name for c in self.cards]) + ":"
+        col_orig_str = self.col_orig
+        if self.col_orig != COL_FC:
+            col_orig_str = ",".join([c.name for c in fcboard.columns[self.col_orig][:-len(self.cards)]])
+        col_dest_str = self.col_dest
+        if self.col_dest != COL_BASE and self.col_dest != COL_FC:
+            col_dest_str = ",".join([c.name for c in fcboard.columns[self.col_dest]])
+        ret += "-".join(sorted([col_orig_str, col_dest_str]))
+        return ret
 
 
 class FCGame(object):
