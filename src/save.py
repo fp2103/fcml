@@ -28,7 +28,7 @@ def load_from_file(filename):
         try:
             verification_deck.remove(card)
         except ValueError:
-            raise ValueError("Card %s is present twice" % str(card))
+            raise ValueError("Card %s is present twice" % card.name)
     
     column_space = "    "
     def split_line(line, header=False):

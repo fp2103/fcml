@@ -26,8 +26,8 @@ class Card(object):
         self.name = "%s%s" % (str(CARD_VALUE[num-1]), suit)
 
         self.is_red = suit in RED
-        self.uid = SUITS.index(suit) * len(CARD_VALUE) + num        
-
+        self.uid = (num << 2) + SUITS.index(suit)
+ 
     def __eq__(self, other):
         if isinstance(other, Card):
             return self.uid == other.uid
@@ -84,13 +84,26 @@ class FCBoard(object):
         return cls([], dict((k, []) for k in SUITS), columns)
     
     def compute_hash(self):
-        ret = ".".join(sorted([str(c.uid) for c in self.freecells]))
-        ret += ":"
+        fc_bits = 0
+        for c in self.freecells:
+            fc_bits = 1 << c.uid
+        
         cols = []
         for i in range(COLUMN):
-            cols.append(".".join([str(c.uid) for c in self.columns[i]]))
-        ret += ":".join(sorted(cols))
-        return ret
+            col_bits = 0
+            j = 0
+            for c in self.columns[i]:
+                col_bits = c.uid << (j*6)
+                j += 1
+            
+            k = 0
+            for cb in cols:
+                if col_bits > cb:
+                    break
+                k += 1
+            cols.insert(k, col_bits)
+
+        return (fc_bits, *cols)
     
     
 class Choice(object):
@@ -103,15 +116,34 @@ class Choice(object):
         return Choice(self.cards, self.col_dest, self.col_orig)
     
     def compute_hash(self, fcboard):
-        ret = ",".join([c.name for c in self.cards]) + ":"
-        col_orig_str = self.col_orig
-        if self.col_orig != COL_FC:
-            col_orig_str = ",".join([c.name for c in fcboard.columns[self.col_orig][:-len(self.cards)]])
-        col_dest_str = self.col_dest
-        if self.col_dest != COL_BASE and self.col_dest != COL_FC:
-            col_dest_str = ",".join([c.name for c in fcboard.columns[self.col_dest]])
-        ret += "-".join(sorted([col_orig_str, col_dest_str]))
-        return ret
+        cards_bit = 0
+        for c in self.cards:
+            cards_bit = 1 << c.uid
+        
+        orig_bit = 0
+        if self.col_orig == COL_FC:
+            orig_bit = 2
+        else:
+            i = 0
+            for c in fcboard.columns[self.col_orig][:-len(self.cards)]:
+                orig_bit = c.uid << (i*6)
+                i += 1
+        
+        dest_bit = 0
+        if self.col_dest == COL_BASE:
+            dest_bit = 1
+        elif self.col_dest == COL_FC:
+            dest_bit = 2
+        else:
+            i = 0
+            for c in fcboard.columns[self.col_dest]:
+                dest_bit = c.uid << (i*6)
+                i += 1
+        
+        if dest_bit > orig_bit:
+            return (cards_bit, dest_bit, orig_bit)
+        else:
+            return (cards_bit, orig_bit, dest_bit)
 
 
 class FCGame(object):

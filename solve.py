@@ -32,23 +32,32 @@ deck = model.DECK[:]
 
 start_time = time.time()
 
+not_founds = []
 for j in range(0, 100):
     print("game:", j)
     randgen = random.Random(j)
     randgen.shuffle(deck)
 
     solv = solver.SolverRandom(model.FCBoard.init_from_deck(deck))
+    #solv = solver.SolverRandom(save.load_from_file("impossible"))
 
+    found = False
     for i in range(20):
         print(i, end=" ")
         moves = solv.solve()
         if type(moves) is list:
             print("found", len(moves))
+            found = True
             break
         else:
             print("not found", len(solv.noexit))
+    if not found:
+        not_founds.append(j)
 
-print("--- %s seconds ---" % (time.time() - start_time))
+timespend = time.time() - start_time
+print("--- %s seconds ---" % str(timespend))
+print("--- per game %s --- " % str(timespend/100.0))
+print("Not founds:", str(not_founds))
 
 # TODO:
 # - compute hash in set of bits!
