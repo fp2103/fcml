@@ -171,64 +171,57 @@ class FCGame(object):
     def _update_column_series(self, col_id):
         if col_id != COL_FC and col_id != COL_BASE:
             self._column_series[col_id] = self._get_column_series(col_id)
-    
-    def _get_mvt_max(self):
+     
+    def list_choices(self):
+        """ Compute choice from destination (except for bases) """
+        choices = []
+        # compute size of mvt allowed:
         freecol = sum([len(col) == 0 for col in self.fcboard.columns])
         max_mvt = (1 + FREECELL - len(self.fcboard.freecells)) * (1 + freecol)
-        max_mvt_freecol_dst =  (1 + FREECELL - len(self.fcboard.freecells)) * freecol
+        max_mvt_empty =  (1 + FREECELL - len(self.fcboard.freecells)) * freecol
         self._last_max_mvt = max_mvt
-        return (max_mvt, max_mvt_freecol_dst)
-    
-    def _find_choice_from_cards(self, num, suits, height_max, col_dest):
-        ret = []
-        wanted_cards = [Card(s, num) for s in suits]
-        i = 0
-        while i < len(wanted_cards):
-            card = wanted_cards[i]
-            i += 1
-
-            # Continue if already in bases
-            if card in self.fcboard.bases.get(card.suit):
-                continue
-
-            # Look in freecells
-            if card in self.fcboard.freecells:
-                ret.append(Choice([card], COL_FC, col_dest))
-                continue
-
-            # Look in columns
-            for cid in range(COLUMN):
-                if cid == col_dest:
-                    continue
-                col = self._column_series[cid]
-                if card in col:
-                    idx = col.index(card)
-                    if (len(col) - idx) <= height_max:
-                        ret.append(Choice(col[idx:], cid, col_dest))
-                        break
-        return ret  
-    
-    def list_choices(self):
-        """ Compute choice from destination """
-        choices = []
-        max_mvt, max_mvt_empty = self._get_mvt_max()
-
-        # Bases
-        for suit, base in self.fcboard.bases.items():
-            if len(base) < 13:
-                choices.extend(self._find_choice_from_cards(len(base)+1, [suit], 1, COL_BASE))
         
+        # Bases from freecell
+        for c in self.fcboard.freecells:
+            if c.num == len(self.fcboard.bases[c.suit]) + 1:
+                choices.append(Choice([c], COL_FC, COL_BASE))
+        
+        # Columns
         for cid in range(COLUMN):
             col = self._column_series[cid]
             if len(col) > 0:
-                # Search specific cards
                 last_card = col[-1]
+
+                # to Base
+                if last_card.num == len(self.fcboard.bases[last_card.suit]) + 1:
+                    choices.append(Choice([last_card], cid, COL_BASE))
+
+                # Search specific cards
                 if last_card.num > 1:
-                    choices.extend(self._find_choice_from_cards(last_card.num-1, BLACK if last_card.is_red else RED, max_mvt, cid))
+                    wanted_is_red = not last_card.is_red
+                    wanted_num = last_card.num-1
+                    
+                    # from freecell
+                    for c in self.fcboard.freecells:
+                        if c.num == wanted_num and c.is_red == wanted_is_red:
+                            choices.append(Choice([c], COL_FC, cid))
+                            
+                    # from other col
+                    for cid2 in range(COLUMN):
+                        if cid == cid2:
+                            continue
+                        col2 = self._column_series[cid2]
+                        idx = 0
+                        for c in col2:
+                            if c.num == wanted_num and c.is_red == wanted_is_red:
+                                if (len(col2) - idx) <= max_mvt:
+                                    choices.append(Choice(col2[idx:], cid2, cid))
+                                break
+                            idx += 1
                 
                 # to Freecell
                 if len(self.fcboard.freecells) < FREECELL:
-                    choices.append(Choice([col[-1]], cid, COL_FC))
+                    choices.append(Choice([last_card], cid, COL_FC))
             else:
                 # from Freecell
                 for c in self.fcboard.freecells:
@@ -248,4 +241,3 @@ class FCGame(object):
         self.fcboard.apply(choice)
         self._update_column_series(choice.col_orig)
         self._update_column_series(choice.col_dest)
-        
