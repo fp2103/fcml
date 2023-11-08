@@ -111,6 +111,8 @@ class Choice(object):
         self.cards = cards
         self.col_orig = col_orig
         self.col_dest = col_dest
+
+        self.weight = 0
     
     def get_reverse(self):
         return Choice(self.cards, self.col_dest, self.col_orig)

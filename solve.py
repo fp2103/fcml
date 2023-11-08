@@ -30,6 +30,9 @@ deck = model.DECK[:]
 #print(play.printBoard(game.fcboard))
 #save.save_to_file("aya", game.fcboard)
 
+coeffs = [2*100*random.random()-100 for _ in range(56)]
+
+
 start_time = time.time()
 
 for j in range(0, 100):
@@ -45,7 +48,8 @@ for j in range(0, 100):
     
     #print(play.printBoard(b))
 
-    solv = solver.SolverRandom(b)
+    #solv = solver.SolverRandom(b)
+    solv = solver.SolverCoeff(b, coeffs)
 
     i = 0
     continu = True
@@ -53,12 +57,13 @@ for j in range(0, 100):
         try:
             print(i, end=" ")
             i += 1
-            moves = solv.solve()
-            if type(moves) is list:
-                print("found", len(moves))
+            res = solv.solve()
+            if res[0]:
+                print("found", len(res[1]))
                 continu = False
             else:
-                print("not found", len(solv.noexit))
+                print("notfound", res[1], len(solv.noexit))
+                continu = False
         except IndexError:
             print("Not solvable!")
             continu = False
