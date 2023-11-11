@@ -41,7 +41,6 @@ class Solver(object):
 
                 in_base = sum([len(game.fcboard.bases.get(k)) for k in model.SUITS])
                 if in_base == len(model.DECK):
-                    # TODO: pass solution into reducer!
                     return True, [m[0] for m in moves], giter
                 max_in_base = max(max_in_base, in_base)
                 
@@ -114,8 +113,7 @@ def moves_reducer(fcboard, moves):
                     if possible:
                         ngame.apply(m)
                         k += 1
-                        if k == j: # skip possible replacement
-                            k += 1
+                        if k == j: k += 1 # skip possible replacement
                         if k < len(nmoves):
                             m = nmoves[k]
                     else:
