@@ -23,10 +23,10 @@ class Solver(object):
         # reset game
         game = model.FCGame(self.fcboard.clone())
 
-        moves = [] # (choice, hash)
+        moves = [] # [(choice, hash)]
         moves_done = set()
         states_choices = [] # [(hashst, [(choice, hash)])]: for each visited states, keep list of sorted choices
-        current_state = None
+        current_state = None # (hashst, [(choice, hash)])
         state_seen = set()
 
         max_in_base = 0
@@ -41,7 +41,8 @@ class Solver(object):
 
                 in_base = sum([len(game.fcboard.bases.get(k)) for k in model.SUITS])
                 if in_base == len(model.DECK):
-                    return True, [m[0] for m in moves]
+                    # TODO: pass solution into reducer!
+                    return True, [m[0] for m in moves], giter
                 max_in_base = max(max_in_base, in_base)
                 
                 hashst = game.fcboard.compute_hash()
@@ -52,7 +53,7 @@ class Solver(object):
                     state_seen.add(hashst)
 
                     all_choices = game.list_choices()
-                    viable_choices = [] # (choice, hash)
+                    viable_choices = [] # [(choice, hash)]
                     for c in all_choices:
                         chash = c.compute_hash(game.fcboard)
                         if chash in moves_done:
@@ -78,11 +79,60 @@ class Solver(object):
                 choice = moves.pop()
                 game.apply(choice[0].get_reverse())
                 moves_done.discard(choice[1])
-                if not seen: #go back but was not seen before, so no exit
+                if not seen: # go back cause no more choice
                     self.noexit.add(current_state[0])
                 current_state = states_choices.pop()
 
-        return False, max_in_base
+        return False, max_in_base, giter
+
+
+
+def moves_reducer(fcboard, moves):
+    game = model.FCGame(fcboard.clone())
+
+    nmoves = moves[:]
+    i = 0
+    while i < len(nmoves):
+        mvt = nmoves[i]
+
+        # searching next moves with same cards
+        j = i+1
+        while j < len(nmoves):
+            if nmoves[j].cards == mvt.cards: # found possible replacement
+                nmvt = model.Choice(mvt.cards, mvt.col_orig, nmoves[j].col_dest)
+
+                ngame = model.FCGame(game.fcboard.clone())
+                impact = False
+                m = nmvt
+                k = i
+                while not impact and k < len(nmoves):
+                    possible = False
+                    for choice in ngame.list_choices():
+                        if choice.equals(m):
+                            possible = True
+                            break
+                    if possible:
+                        ngame.apply(m)
+                        k += 1
+                        if k == j: # skip possible replacement
+                            k += 1
+                        if k < len(nmoves):
+                            m = nmoves[k]
+                    else:
+                        impact = True
+                
+                if not impact:
+                    nmoves[i] = nmvt
+                    del nmoves[j]
+                else:
+                    break
+            j += 1
+        
+        game.apply(nmoves[i])
+        i += 1
+
+    return nmoves
+
 
 class SolverRandom(Solver):
     def sort_choices(self, choices_list, game):
@@ -95,21 +145,24 @@ def vector_multiply(v1, v2):
     return ret
 
 class SolverCoeff(Solver):
+
+    COEFFS_SIZE = 42
+
     def __init__(self, fcboard, coeffs):
-        self.coeffs = coeffs # 56 coeffs
+        self.coeffs = coeffs # 42 coeffs
         super().__init__(fcboard)
 
     def sort_choices(self, choices_list, game):
         # state coeffs:
-        # constant, max_mvt, ratio(sorted/ingame), bases diff => 4
+        # constant, max_mvt, ratio(sorted/ingame) => 3
         # choice coeffs matrix:
         # from/to:        (fc,   empty col,   split serie,   default)     
-        # (base,            0/1      0/1         0/1            1
+        # (base,            0/1      0/1         0/1           0~1 (1->no diff)
         # (fc,              na       0/1         0/1            1
         # (empty col,       0/1       na         0/1            1
         # (size unsorted    0/1      0/1         0/1           0~1 (1->all sorted)
         # ==> 14 
-        # => 4*14 = 56: (4,1)*(1,56)
+        # => 3*14 = 42: (3,1)*(1,42)
         
         # State coeffs
         max_mvt_coeff = min(game._last_max_mvt/10.0, 1.0)
@@ -118,7 +171,6 @@ class SolverCoeff(Solver):
                  + len(game.fcboard.freecells) \
                  + sum(bases_len)
         sorted_coeff = sorted/52.0
-        bases_diff_coeff = (max(bases_len) - min(bases_len))/13.0
 
         # compute choice matrix coeffs
         weight_coeffs = []
@@ -126,8 +178,8 @@ class SolverCoeff(Solver):
         while i < len(self.coeffs):
             w = 0
             if not (len(weight_coeffs) == 4 or len(weight_coeffs) == 9): # coeff 4 & 9 are NA
-                w = vector_multiply(self.coeffs[i:i+4], (1.0, max_mvt_coeff, sorted_coeff, bases_diff_coeff))
-                i += 4
+                w = vector_multiply(self.coeffs[i:i+3], (1.0, max_mvt_coeff, sorted_coeff))
+                i += 3
             weight_coeffs.append(w)
 
         # compute weight for each choice
@@ -141,7 +193,10 @@ class SolverCoeff(Solver):
                                    and len(game._column_series[choice.col_orig]) > len(choice.cards))
             
             to_coeff = 1.0
-            i = 0 # cold_dest == COL_BASE
+            i = 0
+            if choice.col_dest == model.COL_BASE:
+                i = 0
+                to_coeff = 1.0 - ((max(bases_len) - min(bases_len))/13.0)
             if choice.col_dest == model.COL_FC:
                 i = 4
             elif choice.col_dest != model.COL_BASE and len(game.fcboard.columns[choice.col_dest]) == 0:
@@ -155,4 +210,3 @@ class SolverCoeff(Solver):
         
         # sort
         choices_list.sort(key=lambda x: x[0].weight)
-

@@ -146,6 +146,9 @@ class Choice(object):
             return (cards_bit, dest_bit, orig_bit)
         else:
             return (cards_bit, orig_bit, dest_bit)
+    
+    def equals(self, other):
+        return other.cards == self.cards and other.col_orig == self.col_orig and other.col_dest == self.col_dest
 
 
 class FCGame(object):
@@ -173,16 +176,20 @@ class FCGame(object):
     def _update_column_series(self, col_id):
         if col_id != COL_FC and col_id != COL_BASE:
             self._column_series[col_id] = self._get_column_series(col_id)
-     
-    def list_choices(self):
-        """ Compute choice from destination (except for bases) """
-        choices = []
-        # compute size of mvt allowed:
+    
+    def _compute_mvt_max(self):
         freecol = sum([len(col) == 0 for col in self.fcboard.columns])
         max_mvt = (1 + FREECELL - len(self.fcboard.freecells)) * (1 + freecol)
         max_mvt_empty =  (1 + FREECELL - len(self.fcboard.freecells)) * freecol
         self._last_max_mvt = max_mvt
-        
+        return max_mvt, max_mvt_empty
+
+    def list_choices(self):
+        """ Compute choice from destination (except for bases) """
+        choices = []
+        # compute size of mvt allowed:
+        max_mvt, max_mvt_empty = self._compute_mvt_max()
+
         # Bases from freecell
         for c in self.fcboard.freecells:
             if c.num == len(self.fcboard.bases[c.suit]) + 1:
