@@ -11,13 +11,13 @@ GID=0
 NGAME=5
 NGAME_MAX=10
 
+STRATS_FILE="aya"
+
 NRANDOM=10
 NKIDS=10
 
-
 NRANDOM_START=20
 NOIMPROVMENT_STOP=5
-#STRATS_FILE="aya"
 
 COEFF_RANGE = 100
 KIDS_SIGMA = 3.0
@@ -26,8 +26,6 @@ KIDS_SIGMA = 3.0
 
 import src.model as model
 import src.solvers as solver
-
-import play
 
 import random
 
@@ -189,6 +187,17 @@ for i in range(NRANDOM_START):
     coeffs = [2*100*random.random()-100 for _ in range(solver.SolverCoeff.COEFFS_SIZE)]
     strategies.append(Strat("r%d" % i, coeffs))
 
+# read the ones from file
+try:
+    print("Getting strats from", STRATS_FILE)
+    with open(STRATS_FILE, "r") as f:
+        i = 0
+        for line in f.readlines():
+            coeffs = [float(c) for c in line.replace('[', '').replace(']', '').split(',')]
+            strategies.append(Strat("f%d"%i, coeffs))
+            i += 1
+except FileNotFoundError:
+    print("File", STRATS_FILE, "doesn't exist, continue without known solvers")
 
 unsolvable = set()
 bests = []
@@ -210,6 +219,9 @@ while noimprove_count < NOIMPROVMENT_STOP:
             if s.has_solved(g.name):
                 games_unsolved.discard(g.name)
                 unsolvable.discard(g.name)
+            elif len(bests) == 1:
+                print("no need play other")
+                break
     
     # all solved -> add new games
     while len(games_unsolved) == 0 and ngame < NGAME_MAX:
@@ -274,55 +286,40 @@ while noimprove_count < NOIMPROVMENT_STOP:
     if no_improvement:
         print("No improvements")
         noimprove_count += 1
+    else:
+        # save to file
+        with open(STRATS_FILE, 'w') as f:
+            for b in bests:
+                f.write(str(b.coeffs) + "\n")
     old_bests = bests
 
-    #TODO: not when only one left!
-    # Create convergent
-    convergent_coeffs = []
-    bests_weights = [s.get_stats([g.name for g in games])[0] for s in bests]
-    for i in range(solver.SolverCoeff.COEFFS_SIZE):
-        sum_c = 0
-        for j in range(len(bests)):
-            sum_c += bests_weights[j]*bests[j].coeffs[i]
-        convergent_coeffs.append(sum_c/float(sum(bests_weights)))
-    convergent = Strat("c%d" % genid, convergent_coeffs)
-
     strategies = []
-    
-    # Create kids 1/2 conv, 1/2 random
-    for b in bests:
-        strategies.append(b)
-        for i in range(int(NKIDS/2)):
-            strategies.append(Strat("%sc%d"%(b.name, i), b.make_converging_kid_coeffs(convergent_coeffs)))
-        for i in range(int(NKIDS/2)):
-            strategies.append(Strat("%sr%d"%(b.name, i), b.make_random_kid_coeffs()))
-    
-    strategies.append(convergent)
-    for i in range(NKIDS):
-        strategies.append(Strat("%sr%d"%(convergent.name, i), convergent.make_random_kid_coeffs()))
+    if len(bests) > 1:
+        # Create convergent
+        convergent_coeffs = []
+        bests_weights = [s.get_stats([g.name for g in games])[0] for s in bests]
+        for i in range(solver.SolverCoeff.COEFFS_SIZE):
+            sum_c = 0
+            for j in range(len(bests)):
+                sum_c += bests_weights[j]*bests[j].coeffs[i]
+            convergent_coeffs.append(sum_c/float(sum(bests_weights)))
+        convergent = Strat("c%d" % genid, convergent_coeffs)
         
+        # Create kids 1/2 conv, 1/2 random
+        for b in bests:
+            strategies.append(b)
+            for i in range(int(NKIDS/2)):
+                strategies.append(Strat("%sc%d"%(b.name, i), b.make_converging_kid_coeffs(convergent_coeffs)))
+            for i in range(int(NKIDS/2)):
+                strategies.append(Strat("%sr%d"%(b.name, i), b.make_random_kid_coeffs()))
+        
+        strategies.append(convergent)
+        for i in range(NKIDS):
+            strategies.append(Strat("%sr%d"%(convergent.name, i), convergent.make_random_kid_coeffs()))
     
-
+    else: # only one strats left, no need to converge
+        strategies.append(bests[0])
+        for i in range(NKIDS):
+            strategies.append(Strat("%sr%d"%(b.name, i), b.make_random_kid_coeffs()))
+            
     
-
-
-###
-# create/read strats
-# 
-# play them on games
-# 
-# if all solved -> add new game (play it by all) until unsolved or maxgames
-# if unsolved -> solve_specific_game(), play all other games 
-#                until all solved
-#
-# find best coverage
-# 
-# compute mean convergent
-# 
-# create kids random and converging
-#
-# restart to play
-
-
-
-# refactor with games as dictionaries....
