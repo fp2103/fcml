@@ -5,6 +5,9 @@
 Simple in terminal freecell game
 """
 
+import sys
+import random
+
 import src.model as m
 import src.save as save
 
@@ -52,19 +55,12 @@ def printChoice(choice):
         col_dest_s = TermColor.GREEN + col_dest_s + TermColor.ENDC
     return ",".join(list_card) + " from %s to %s" % (str(choice.col_orig), col_dest_s)
 
-
-# -------- Main freecell game --------
-
-import sys
-import random
-
-if __name__ == "__main__":
-
+def create_game(args): # return game, filename
     # Read game id or game file
     game = None
-    game_filename = ""
+    filename = ""
     gid = random.randint(0, 1000000)
-    if len(sys.argv) > 1:
+    if len(args) > 1:
         game_file = False
         arg1 = sys.argv[1]
         try:
@@ -74,7 +70,7 @@ if __name__ == "__main__":
         
         if game_file:
             game = m.FCGame(save.load_from_file(arg1))
-            game_filename = arg1
+            filename = arg1
             
     if game is None:
         print("Game seed:", gid)
@@ -82,7 +78,15 @@ if __name__ == "__main__":
         randgen = random.Random(gid)
         randgen.shuffle(deck)
         game = m.FCGame(m.FCBoard.init_from_deck(deck))
-        game_filename = "game_%d.save" % gid
+        filename = "game_%d.save" % gid
+    
+    return game, filename
+
+# -------- Main freecell game --------
+
+if __name__ == "__main__":
+
+    game, game_filename = create_game(sys.argv)
 
     run = True
     moves = []
