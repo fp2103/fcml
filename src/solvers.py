@@ -10,9 +10,60 @@ class Solver(object):
     def __init__(self, fcboard):
         self.fcboard = fcboard
         self.noexit = set()
+        self.called = -1
     
     def sort_choices(self, choices_list, game):
-        raise NotImplementedError()
+        # Priorities categories:
+        # 1) base & reduce base diff
+        # 2) sorted inc & mvt_max (= or inc)
+        # 3) other
+        # 4) sorted = & mvt_max dec
+
+        CAT1 = 10000
+        CAT2 = 5
+        CAT3 = 1
+        CAT4 = 0
+        rfactor = self.called if self.called > 0 else 0.4
+        
+        for xchoice in choices_list:
+            choice = xchoice[0]
+            crand = (2*rfactor*random.random())-rfactor
+
+            # From 
+            from_fc = choice.col_orig == model.COL_FC
+            empty_col = not from_fc and len(game.fcboard.columns[choice.col_orig]) == len(choice.cards)
+            split_serie = not from_fc and len(game._column_series[choice.col_orig]) > len(choice.cards)
+
+            # To
+            if choice.col_dest == model.COL_BASE:
+                bases_len = [len(game.fcboard.bases[k]) for k in model.SUITS]
+                diff_bases = max(bases_len) - min(bases_len)
+
+                i = model.SUITS.index(choice.cards[0].suit)
+                bases_len[i] += 1
+                new_diff_bases = max(bases_len) - min(bases_len)
+
+                if new_diff_bases < diff_bases:
+                    choice.weight = CAT1 + crand
+                else:
+                    choice.weight = CAT2 + crand
+            elif choice.col_dest == model.COL_FC:
+                if empty_col or split_serie:
+                    choice.weight = CAT4 + crand
+                else:
+                    choice.weight = CAT3 + crand
+            elif len(game.fcboard.columns[choice.col_dest]) == 0: # to empty col
+                if from_fc or split_serie:
+                    choice.weight = CAT4 + crand
+                else:
+                    choice.weight = CAT3 + crand
+            else: # to not empty col
+                if split_serie: # sorted =
+                    choice.weight = CAT3 + crand
+                else: # sorted inc or max_mvt inc
+                    choice.weight = CAT2 + crand
+        
+        choices_list.sort(key=lambda x: x[0].weight)
 
     def solve(self):
         """
@@ -20,6 +71,7 @@ class Solver(object):
         return: True, list of moves
                 False, max in base
         """
+        self.called += 1
         # reset game
         game = model.FCGame(self.fcboard.clone())
 
@@ -84,8 +136,6 @@ class Solver(object):
 
         return False, max_in_base, giter
 
-
-
 def moves_reducer(fcboard, moves):
     game = model.FCGame(fcboard.clone())
 
@@ -130,81 +180,5 @@ def moves_reducer(fcboard, moves):
         i += 1
 
     return nmoves
+    
 
-
-class SolverRandom(Solver):
-    def sort_choices(self, choices_list, game):
-        random.shuffle(choices_list)
-
-def vector_multiply(v1, v2):
-    ret = 0
-    for i in range(len(v1)):
-        ret += v1[i]*v2[i]
-    return ret
-
-class SolverCoeff(Solver):
-
-    COEFFS_SIZE = 42
-
-    def __init__(self, fcboard, coeffs):
-        self.coeffs = coeffs # 42 coeffs
-        super().__init__(fcboard)
-
-    def sort_choices(self, choices_list, game):
-        # state coeffs:
-        # constant, max_mvt, ratio(sorted/ingame) => 3
-        # choice coeffs matrix:
-        # from/to:        (fc,   empty col,   split serie,   default)     
-        # (base,            0/1      0/1         0/1           0~1 (1->no diff)
-        # (fc,              na       0/1         0/1            1
-        # (empty col,       0/1       na         0/1            1
-        # (size unsorted    0/1      0/1         0/1           0~1 (1->all sorted)
-        # ==> 14 
-        # => 3*14 = 42: (3,1)*(1,42)
-        
-        # State coeffs
-        max_mvt_coeff = min(game._last_max_mvt/10.0, 1.0)
-        bases_len = [len(game.fcboard.bases[k]) for k in model.SUITS]
-        sorted = sum([len(c) for c in game._column_series]) \
-                 + len(game.fcboard.freecells) \
-                 + sum(bases_len)
-        sorted_coeff = sorted/52.0
-
-        # compute choice matrix coeffs
-        weight_coeffs = []
-        i = 0
-        while i < len(self.coeffs):
-            w = 0
-            if not (len(weight_coeffs) == 4 or len(weight_coeffs) == 9): # coeff 4 & 9 are NA
-                w = vector_multiply(self.coeffs[i:i+3], (1.0, max_mvt_coeff, sorted_coeff))
-                i += 3
-            weight_coeffs.append(w)
-
-        # compute weight for each choice
-        for xchoice in choices_list:
-            choice = xchoice[0]
-
-            from_fc = int(choice.col_orig == model.COL_FC)
-            from_emptycol = int(choice.col_orig != model.COL_FC \
-                                and len(game.fcboard.columns[choice.col_orig]) == len(choice.cards))
-            from_split_serie = int(choice.col_orig != model.COL_FC \
-                                   and len(game._column_series[choice.col_orig]) > len(choice.cards))
-            
-            to_coeff = 1.0
-            i = 0
-            if choice.col_dest == model.COL_BASE:
-                i = 0
-                to_coeff = 1.0 - ((max(bases_len) - min(bases_len))/13.0)
-            if choice.col_dest == model.COL_FC:
-                i = 4
-            elif choice.col_dest != model.COL_BASE and len(game.fcboard.columns[choice.col_dest]) == 0:
-                i = 8
-            elif choice.col_dest != model.COL_BASE:
-                i = 12
-                ratio = 6.0 if choice.col_dest < 4 else 5.0
-                to_coeff = 1.0 - ((len(game.fcboard.columns[choice.col_dest]) - len(game._column_series[choice.col_dest]))/ratio)
-            
-            choice.weight = vector_multiply(weight_coeffs[i:i+4], (from_fc, from_emptycol, from_split_serie, to_coeff))
-        
-        # sort
-        choices_list.sort(key=lambda x: x[0].weight)
