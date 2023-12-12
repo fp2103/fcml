@@ -86,14 +86,14 @@ class FCBoard(object):
     def compute_hash(self):
         fc_bits = 0
         for c in self.freecells:
-            fc_bits = 1 << c.uid
+            fc_bits += 1 << c.uid
         
         cols = []
         for i in range(COLUMN):
             col_bits = 0
             j = 0
             for c in self.columns[i]:
-                col_bits = c.uid << (j*6)
+                col_bits += c.uid << (j*6)
                 j += 1
             
             k = 0
@@ -120,7 +120,7 @@ class Choice(object):
     def compute_hash(self, fcboard):
         cards_bit = 0
         for c in self.cards:
-            cards_bit = 1 << c.uid
+            cards_bit += 1 << c.uid
         
         orig_bit = 0
         if self.col_orig == COL_FC:
@@ -128,7 +128,7 @@ class Choice(object):
         else:
             i = 0
             for c in fcboard.columns[self.col_orig][:-len(self.cards)]:
-                orig_bit = c.uid << (i*6)
+                orig_bit += c.uid << (i*6)
                 i += 1
         
         dest_bit = 0
@@ -139,7 +139,7 @@ class Choice(object):
         else:
             i = 0
             for c in fcboard.columns[self.col_dest]:
-                dest_bit = c.uid << (i*6)
+                dest_bit += c.uid << (i*6)
                 i += 1
         
         if dest_bit > orig_bit:

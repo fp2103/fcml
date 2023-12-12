@@ -17,6 +17,10 @@ if __name__ == "__main__":
 
     game, _ = play.create_game(sys.argv)
 
+#tot_times = 0
+#for i in range(100):
+#    game, _ = play.create_game([None, i])
+
     start_time = time.time()
     
     solv = solver.Solver(game.fcboard)
@@ -42,8 +46,12 @@ if __name__ == "__main__":
             print("Not solvable!")
             continu = False
     
-timespend = time.time() - start_time
-print("--- runtime: %s seconds ---" % str(timespend))
+    timespend = time.time() - start_time
+    print("--- runtime: %s seconds ---" % str(timespend))
+#    tot_times += timespend
+
+#print("mean time:", tot_times/100)
+
 
 
 

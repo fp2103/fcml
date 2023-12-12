@@ -62,7 +62,7 @@ def create_game(args): # return game, filename
     gid = random.randint(0, 1000000)
     if len(args) > 1:
         game_file = False
-        arg1 = sys.argv[1]
+        arg1 = args[1]
         try:
             gid = int(arg1)
         except ValueError as v:
