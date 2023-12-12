@@ -95,13 +95,8 @@ class FCBoard(object):
             for c in self.columns[i]:
                 col_bits += c.uid << (j*6)
                 j += 1
-            
-            k = 0
-            for cb in cols:
-                if col_bits > cb:
-                    break
-                k += 1
-            cols.insert(k, col_bits)
+            cols.append(col_bits)
+        cols.sort()
 
         return (fc_bits, *cols)
     
